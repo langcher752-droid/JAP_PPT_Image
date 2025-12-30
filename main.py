@@ -1249,11 +1249,12 @@ def load_config():
     从配置文件加载API配置
     
     Returns:
-        (google_api_key, google_cse_id, spark_api_key, spark_base_url, spark_model) 元组
+        (google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model) 元组
     """
     config_file = "config.json"
     google_api_key = None
     google_cse_id = None
+    google_ai_api_key = None
     spark_api_key = None
     spark_base_url = None
     spark_model = None
@@ -1264,18 +1265,21 @@ def load_config():
                 config = json.load(f)
                 google_api_key = config.get('google_api_key')
                 google_cse_id = config.get('google_cse_id')
+                google_ai_api_key = config.get('google_ai_api_key')  # Gemini API Key
                 spark_api_key = config.get('spark_api_key')
                 spark_base_url = config.get('spark_base_url', 'https://spark-api-open.xf-yun.com/v2')
                 spark_model = config.get('spark_model', 'spark-x')
                 
                 if google_api_key and google_cse_id:
-                    print(f"[INFO] 已从配置文件加载Google API设置")
+                    print(f"[INFO] 已从配置文件加载Google Custom Search API设置")
+                if google_ai_api_key:
+                    print(f"[INFO] 已从配置文件加载Google AI (Gemini) API设置")
                 if spark_api_key:
                     print(f"[INFO] 已从配置文件加载Spark AI API设置")
         except Exception as e:
             print(f"[WARN] 读取配置文件失败: {e}")
     
-    return google_api_key, google_cse_id, spark_api_key, spark_base_url, spark_model
+    return google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model
 
 def main():
     """
@@ -1286,7 +1290,7 @@ def main():
     print("=" * 50)
     
     # 加载API配置
-    google_api_key, google_cse_id, spark_api_key, spark_base_url, spark_model = load_config()
+    google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model = load_config()
     
     if not google_api_key or not google_cse_id:
         print("\n[提示] Google图片搜索API未配置")
@@ -1295,11 +1299,15 @@ def main():
         print("详细说明请查看：GoogleAPI配置说明.txt")
         print()
     
-    if not spark_api_key:
-        print("\n[提示] Spark AI API未配置")
+    if not google_ai_api_key and not spark_api_key:
+        print("\n[提示] AI API未配置")
         print("将直接使用原始关键词搜索图片")
-        print("如需使用Spark AI优化搜索关键词，请在config.json中添加spark_api_key")
+        print("如需使用AI优化搜索关键词，请在config.json中添加google_ai_api_key（优先）或spark_api_key")
         print()
+    elif google_ai_api_key:
+        print("\n[提示] Google AI (Gemini) API已配置，将优先用于优化搜索关键词")
+    elif spark_api_key:
+        print("\n[提示] Spark AI API已配置，将用于优化搜索关键词")
     
     # 获取用户输入
     ppt_path = input("请输入PPT文件路径: ").strip().strip('"')
@@ -1321,6 +1329,7 @@ def main():
         ppt_path, 
         google_api_key=google_api_key,
         google_cse_id=google_cse_id,
+        google_ai_api_key=google_ai_api_key,
         spark_api_key=spark_api_key,
         spark_base_url=spark_base_url,
         spark_model=spark_model,
