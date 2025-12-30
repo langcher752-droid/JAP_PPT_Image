@@ -50,14 +50,37 @@ task_status = {}
 
 class ProgressLogger:
     """用于捕获处理进度的日志类，同时转发到原始stdout，方便在服务器日志中查看完整输出"""
-    def __init__(self, original_stdout=None):
+    def __init__(self, original_stdout=None, task_id=None):
         self.logs = []
         self.original_stdout = original_stdout
+        self.task_id = task_id
+        self.current_page = 0
+        self.total_pages = 0
+        self.progress_percent = 0
     
     def write(self, message):
         # 记录到内存日志
         if message.strip():
             self.logs.append(message.strip())
+            
+            # 解析进度信息（例如："[####################] 100% (37/37 pages)"）
+            import re
+            progress_match = re.search(r'(\d+)% \((\d+)/(\d+) pages\)', message)
+            if progress_match:
+                self.progress_percent = int(progress_match.group(1))
+                self.current_page = int(progress_match.group(2))
+                self.total_pages = int(progress_match.group(3))
+                
+                # 更新全局任务状态
+                if self.task_id:
+                    task_status[self.task_id] = {
+                        'status': 'processing',
+                        'progress': self.progress_percent,
+                        'current_page': self.current_page,
+                        'total_pages': self.total_pages,
+                        'logs': self.logs[-50:]  # 只保留最后50条日志
+                    }
+        
         # 同时转发到原stdout，这样 journalctl 里也能看到完整日志
         if self.original_stdout is not None:
             try:
