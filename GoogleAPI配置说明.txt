@@ -1,0 +1,90 @@
+Google图片搜索API配置说明
+==========================
+
+为什么要配置Google API？
+------------------------
+配置Google Custom Search API后，程序可以搜索到与日语词汇高度相关的图片，
+大大提高学习效果。
+
+配置步骤：
+---------
+
+步骤1：获取Google API Key
+-------------------------
+1. 访问 Google Cloud Console: https://console.cloud.google.com/
+2. 登录您的Google账号
+3. 创建新项目或选择现有项目
+4. 启用"Custom Search API"：
+   - 在左侧菜单选择"API和服务" -> "库"
+   - 搜索"Custom Search API"
+   - 点击"启用"
+
+5. 创建API密钥：
+   - 转到"API和服务" -> "凭据"
+   - 点击"创建凭据" -> "API密钥"
+   - 复制生成的API密钥
+
+步骤2：创建Custom Search Engine (CSE)
+------------------------------------
+1. 访问 Google Custom Search: https://cse.google.com/cse/
+2. 点击"添加"创建新的搜索引擎
+3. 在"要搜索的网站"中输入：*
+   （星号表示搜索整个互联网）
+4. 选择"搜索整个网络"
+5. 创建后，点击搜索引擎设置
+6. 在"基本信息"中找到"搜索引擎ID"（格式类似：012345678901234567890:abcdefghijk）
+7. 复制这个ID
+
+步骤3：配置程序
+--------------
+1. 在程序目录下创建 config.json 文件
+2. 内容如下：
+
+{
+  "google_api_key": "您的API密钥",
+  "google_cse_id": "您的搜索引擎ID"
+}
+
+示例：
+{
+  "google_api_key": "AIzaSyAbCdEfGhIjKlMnOpQrStUvWxYz",
+  "google_cse_id": "012345678901234567890:abcdefghijk"
+}
+
+3. 保存文件
+
+步骤4：测试
+----------
+运行程序，如果配置正确，会显示：
+[INFO] Google Custom Search API已配置
+
+注意事项：
+---------
+1. Google Custom Search API有免费配额：
+   - 每天100次免费搜索请求
+   - 超出后需要付费
+
+2. 如果不想配置API，程序会自动使用备用方案：
+   - 尝试爬取Google图片搜索结果（不需要API）
+   - 如果失败，使用Picsum Photos（随机图片）
+
+3. API密钥请妥善保管，不要分享给他人
+
+4. 如果遇到"API配额已用完"错误：
+   - 等待24小时后重置
+   - 或升级到付费计划
+
+故障排除：
+---------
+Q: 提示"API配额已用完"
+A: 免费配额每天100次，请等待重置或减少处理的PPT页数
+
+Q: 提示"API密钥无效"
+A: 检查config.json中的API密钥是否正确
+
+Q: 提示"搜索引擎ID无效"
+A: 检查config.json中的CSE ID是否正确，确保搜索引擎已启用"搜索整个网络"
+
+Q: 不想配置API，可以使用吗？
+A: 可以！程序会自动尝试爬取Google搜索结果，如果失败会使用备用图片源
+

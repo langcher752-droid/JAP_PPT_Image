@@ -1,0 +1,8 @@
+{
+  "google_api_key": "在这里填入您的Google API密钥",
+  "google_cse_id": "在这里填入您的Google Custom Search Engine ID",
+  "spark_api_key": "在这里填入您的Spark AI API密钥（格式：AK:SK 或 APIPassword）",
+  "spark_base_url": "https://spark-api-open.xf-yun.com/v2",
+  "spark_model": "spark-x"
+}
+

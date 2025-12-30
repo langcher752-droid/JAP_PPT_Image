@@ -1,0 +1,60 @@
+Python安装指南
+==============
+
+问题：提示"pip不是内部或外部命令"
+
+原因：
+------
+1. Python未安装
+2. Python已安装但未添加到系统PATH环境变量
+
+解决方案：
+---------
+
+方案一：安装Python（推荐）
+------------------------
+1. 访问Python官网：https://www.python.org/downloads/
+2. 下载最新版本的Python（推荐Python 3.11或3.12）
+3. 运行安装程序
+4. ⚠️ 重要：在安装界面中，务必勾选 "Add Python to PATH" 选项
+5. 点击"Install Now"完成安装
+6. 安装完成后，重新打开命令行窗口
+7. 运行"检查Python安装.bat"验证安装
+
+方案二：如果Python已安装但pip不可用
+----------------------------------
+1. 找到Python安装目录（通常在 C:\Users\您的用户名\AppData\Local\Programs\Python\）
+2. 检查该目录下是否有 Scripts 文件夹
+3. 如果有，将该文件夹路径添加到系统PATH环境变量中
+4. 或者直接使用：python -m pip install -r requirements.txt
+
+方案三：使用python -m pip命令
+----------------------------
+即使pip命令不可用，您也可以尝试：
+python -m pip install -r requirements.txt
+
+如果这个命令也失败，说明Python可能没有正确安装。
+
+快速检查：
+---------
+运行"检查Python安装.bat"脚本，它会自动检测并尝试安装依赖。
+
+常见问题：
+---------
+Q: 安装Python时没有看到"Add Python to PATH"选项？
+A: 在安装程序的第一页，选择"Customize installation"（自定义安装），
+   然后在下一页可以找到"Add Python to PATH"选项。
+
+Q: 安装后仍然提示找不到pip？
+A: 1. 关闭所有命令行窗口并重新打开
+   2. 检查Python是否真的安装了：python --version
+   3. 尝试使用：python -m pip --version
+
+Q: 如何手动添加Python到PATH？
+A: 1. 右键"此电脑" -> 属性 -> 高级系统设置
+   2. 点击"环境变量"
+   3. 在"系统变量"中找到Path，点击"编辑"
+   4. 添加Python安装目录和Scripts目录
+   5. 例如：C:\Users\您的用户名\AppData\Local\Programs\Python\Python311
+   6. 例如：C:\Users\您的用户名\AppData\Local\Programs\Python\Python311\Scripts
+

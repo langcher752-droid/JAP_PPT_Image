@@ -1,0 +1,62 @@
+Pillow安装失败 - 解决方案
+==========================
+
+问题描述：
+---------
+ERROR: Failed to build 'Pillow' when getting requirements to build wheel
+KeyError: '__version__'
+
+原因：
+-----
+1. Pillow 10.0.0版本可能与Python 3.14不兼容
+2. 需要从源码编译，但缺少必要的构建工具
+3. Python 3.14是非常新的版本，某些库可能还没有预编译的wheel文件
+
+解决方案（按优先级排序）：
+--------------------------
+
+方案1：使用预编译的wheel文件（推荐）
+----------------------------------
+运行以下命令：
+python -m pip install --only-binary :all: Pillow -i https://pypi.tuna.tsinghua.edu.cn/simple --user
+
+如果失败，尝试：
+python -m pip install Pillow -i https://pypi.tuna.tsinghua.edu.cn/simple --user --no-build-isolation
+
+方案2：安装最新版本的Pillow
+--------------------------
+不指定版本，让pip自动选择兼容版本：
+python -m pip install Pillow -i https://pypi.tuna.tsinghua.edu.cn/simple --user
+
+方案3：使用简化安装脚本
+---------------------
+运行"安装依赖-简化版.bat"，它会逐步安装每个库
+
+方案4：如果Pillow仍然无法安装
+----------------------------
+Pillow主要用于图片处理，如果实在无法安装，可以：
+1. 先安装其他两个库：python-pptx 和 requests
+2. 修改main.py，移除Pillow的导入（如果代码中没有直接使用）
+3. 图片下载功能仍然可以正常工作
+
+实际上，查看main.py代码，Pillow可能不是必需的，因为：
+- python-pptx 可以直接处理图片添加到PPT
+- requests 用于下载图片
+- 如果代码中没有直接使用PIL/Pillow，可以暂时不安装
+
+检查代码是否真的需要Pillow：
+---------------------------
+运行以下命令检查：
+python -c "import sys; sys.path.insert(0, '.'); import main; import inspect; print('Pillow used:', 'PIL' in str(inspect.getsource(main)))"
+
+如果显示False，说明代码可能不需要Pillow。
+
+临时解决方案：
+-------------
+如果只需要基本功能，可以：
+1. 安装python-pptx和requests
+2. 暂时跳过Pillow
+3. 测试程序是否能正常运行
+
+如果程序运行时报错缺少Pillow，再尝试安装。
+
