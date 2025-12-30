@@ -1210,7 +1210,7 @@ class PPTImageEnhancer:
                     print(f" ✗ 失败")
             
             # 强制要求必须有2张图片，如果不够则反复搜索直到找到2张
-            max_retries = 5  # 最多重试5次
+            max_retries = 3  # 最多重试3次（减少重试次数，避免超时）
             retry_count = 0
             
             while len(image_paths) < 2 and retry_count < max_retries:
@@ -1223,7 +1223,8 @@ class PPTImageEnhancer:
                 retry_keyword = texts[0] if texts else search_keyword
                 
                 # 如果配置了AI，尝试用AI优化关键词（优先Gemini，失败用Spark）
-                if (self.google_ai_api_key or self.spark_api_key) and retry_count > 0:
+                # 只在第一次重试时尝试AI优化，避免API配额问题导致超时
+                if (self.google_ai_api_key or self.spark_api_key) and retry_count == 1:
                     if self.verbose:
                         print(f"    [DEBUG] 使用AI优化关键词（第{retry_count+1}次重试）")
                     optimized = None
