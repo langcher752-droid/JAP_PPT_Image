@@ -305,7 +305,7 @@
                 <div class="config-title">⚙️ API服务器地址</div>
                 <input type="text" id="apiUrl" class="config-input" 
                        placeholder="https://your-server.com" 
-                       value="">
+                       value="https://www.rancho.website">
                 <button class="button button-secondary" onclick="checkServer()">检查连接</button>
             </div>
 
@@ -453,16 +453,23 @@
                 const data = await response.json();
                 
                 if (data.status === 'ok') {
-                    let msg = '服务器连接正常';
-                    if (!data.server_google_api_configured || !data.server_spark_api_configured) {
-                        msg += '（提示：可在下方填写你自己的API Key）';
-                    }
-                    updateStatus(true, msg);
+                    // 构建详细的状态信息
+                    const statusDetails = [];
+                    statusDetails.push(`✓ 服务器连接正常`);
+                    statusDetails.push(`Google Custom Search: ${data.server_google_api_configured ? '✓ 已配置' : '✗ 未配置'}`);
+                    statusDetails.push(`Google AI (Gemini): ${data.server_google_ai_configured ? '✓ 已配置' : '✗ 未配置'}`);
+                    statusDetails.push(`Spark AI: ${data.server_spark_api_configured ? '✓ 已配置' : '✗ 未配置'}`);
+                    
+                    const msg = statusDetails.join('\n');
+                    alert(msg + '\n\n提示：如果服务器未配置API Key，可在下方填写你自己的Key');
+                    updateStatus(true, '服务器连接正常');
                 } else {
                     updateStatus(false, '服务器响应异常');
+                    alert('服务器响应异常: ' + (data.message || '未知错误'));
                 }
             } catch (error) {
                 updateStatus(false, '无法连接到服务器');
+                alert('无法连接到服务器: ' + error.message);
             }
         }
 
@@ -521,8 +528,8 @@
 
             try {
                 addLog('正在上传文件...', 'info');
-                document.getElementById('progressFill').style.width = '10%';
-                document.getElementById('progressFill').textContent = '10%';
+                document.getElementById('progressFill').style.width = '5%';
+                document.getElementById('progressFill').textContent = '5%';
 
                 const response = await fetch(`${apiUrl}/api/process`, {
                     method: 'POST',
@@ -530,23 +537,69 @@
                 });
 
                 const data = await response.json();
-
+                
                 if (data.status === 'success') {
                     currentTaskId = data.task_id;
-                    addLog('处理完成！', 'success');
-                    document.getElementById('progressFill').style.width = '100%';
-                    document.getElementById('progressFill').textContent = '100%';
                     
-                    // 显示日志
-                    if (data.logs && data.logs.length > 0) {
-                        document.getElementById('logContainer').classList.add('show');
-                        data.logs.forEach(log => {
-                            addLog(log, 'info');
-                        });
-                    }
+                    // 开始轮询进度
+                    const pollProgress = async () => {
+                        try {
+                            const progressResponse = await fetch(`${apiUrl}/api/progress/${currentTaskId}`);
+                            const progressData = await progressResponse.json();
+                            
+                            // 更新进度条
+                            if (progressData.progress !== undefined) {
+                                document.getElementById('progressFill').style.width = progressData.progress + '%';
+                                document.getElementById('progressFill').textContent = progressData.progress + '%';
+                                
+                                // 更新进度文本
+                                if (progressData.current_page && progressData.total_pages) {
+                                    document.getElementById('progressText').textContent = 
+                                        `处理中... ${progressData.current_page}/${progressData.total_pages} 页 (${progressData.progress}%)`;
+                                }
+                            }
+                            
+                            // 更新日志
+                            if (progressData.logs && progressData.logs.length > 0) {
+                                document.getElementById('logContainer').classList.add('show');
+                                const logContainer = document.getElementById('logContainer');
+                                const currentLogCount = logContainer.children.length;
+                                
+                                // 只添加新日志
+                                progressData.logs.slice(currentLogCount).forEach(log => {
+                                    addLog(log, 'info');
+                                });
+                            }
+                            
+                            // 如果还在处理中，继续轮询
+                            if (progressData.status === 'processing') {
+                                setTimeout(pollProgress, 1000); // 每秒轮询一次
+                            } else if (progressData.status === 'success') {
+                                // 处理完成
+                                addLog('处理完成！', 'success');
+                                document.getElementById('progressFill').style.width = '100%';
+                                document.getElementById('progressFill').textContent = '100%';
+                                document.getElementById('progressText').textContent = '处理完成！';
+                                
+                                // 显示所有日志
+                                if (progressData.logs && progressData.logs.length > 0) {
+                                    document.getElementById('logContainer').classList.add('show');
+                                }
+                                
+                                // 显示结果
+                                document.getElementById('resultContainer').classList.add('show');
+                            } else if (progressData.status === 'error') {
+                                throw new Error(progressData.error || '处理失败');
+                            }
+                        } catch (error) {
+                            console.error('轮询进度失败:', error);
+                            // 即使轮询失败，也尝试等待最终结果
+                            setTimeout(pollProgress, 2000);
+                        }
+                    };
                     
-                    // 显示结果
-                    document.getElementById('resultContainer').classList.add('show');
+                    // 开始轮询
+                    pollProgress();
                 } else {
                     throw new Error(data.error || '处理失败');
                 }
