@@ -371,16 +371,27 @@
 
         // 初始化
         document.addEventListener('DOMContentLoaded', function() {
-            // 从localStorage读取API URL
+            const apiUrlInput = document.getElementById('apiUrl');
+            
+            // 从localStorage读取API URL，如果没有则使用input框的默认值
             const savedUrl = localStorage.getItem('apiUrl');
             if (savedUrl) {
-                document.getElementById('apiUrl').value = savedUrl;
+                apiUrlInput.value = savedUrl;
                 apiUrl = savedUrl;
+            } else {
+                // 如果没有保存的URL，使用input框的默认值（如果有）
+                const defaultValue = apiUrlInput.value.trim();
+                if (defaultValue) {
+                    apiUrl = defaultValue;
+                }
             }
+            
             // 读取用户的API Key（仅存储在当前浏览器）
+            const savedGoogleAiKey = localStorage.getItem('googleAiApiKey');
             const savedSparkKey = localStorage.getItem('sparkApiKey');
             const savedGoogleKey = localStorage.getItem('googleApiKey');
             const savedGoogleCseId = localStorage.getItem('googleCseId');
+            if (savedGoogleAiKey) document.getElementById('googleAiApiKey').value = savedGoogleAiKey;
             if (savedSparkKey) document.getElementById('sparkApiKey').value = savedSparkKey;
             if (savedGoogleKey) document.getElementById('googleApiKey').value = savedGoogleKey;
             if (savedGoogleCseId) document.getElementById('googleCseId').value = savedGoogleCseId;
@@ -439,14 +450,24 @@
 
         // 检查服务器状态
         async function checkServer() {
-            const url = document.getElementById('apiUrl').value.trim();
-            if (!url) {
+            const urlInput = document.getElementById('apiUrl');
+            const url = urlInput.value.trim();
+            
+            // 如果没有输入，使用input框的默认值
+            const finalUrl = url || urlInput.getAttribute('value') || 'https://www.rancho.website';
+            
+            if (!finalUrl) {
                 updateStatus(false, '请输入API服务器地址');
                 return;
             }
 
-            apiUrl = url;
-            localStorage.setItem('apiUrl', url);
+            // 更新input框的值（如果之前是空的）
+            if (!url && finalUrl) {
+                urlInput.value = finalUrl;
+            }
+            
+            apiUrl = finalUrl;
+            localStorage.setItem('apiUrl', finalUrl);
 
             try {
                 const response = await fetch(`${apiUrl}/api/health`);
@@ -484,6 +505,25 @@
 
         // 处理文件
         async function processFile() {
+            // 确保apiUrl已设置（使用input框的值或默认值）
+            const urlInput = document.getElementById('apiUrl');
+            const url = urlInput.value.trim();
+            if (url) {
+                apiUrl = url;
+                localStorage.setItem('apiUrl', url);
+            } else {
+                // 如果没有输入，使用input框的默认值
+                const defaultValue = urlInput.getAttribute('value') || 'https://www.rancho.website';
+                if (defaultValue) {
+                    apiUrl = defaultValue;
+                    urlInput.value = defaultValue;
+                    localStorage.setItem('apiUrl', defaultValue);
+                } else {
+                    alert('请先输入API服务器地址');
+                    return;
+                }
+            }
+            
             const fileInput = document.getElementById('fileInput');
             const file = fileInput.files[0];
             
