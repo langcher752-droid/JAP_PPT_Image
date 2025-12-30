@@ -95,8 +95,9 @@ class PPTImageEnhancer:
                 'searchType': 'image',
                 'num': min(count, 10),  # Google API最多返回10个结果
                 'safe': 'active',
-                'imgSize': 'large',
-                'imgType': 'photo'
+                'imgSize': 'xlarge',  # 使用xlarge获取更高分辨率图片
+                'imgType': 'photo',
+                'fileType': 'jpg,png'  # 限制为常见格式，避免webp
             }
             
             response = requests.get(url, params=params, timeout=15)
@@ -811,17 +812,6 @@ class PPTImageEnhancer:
             bg_color: 背景颜色RGB元组
             transparency: 透明度（降低默认透明度以提高可读性）
         """
-        # 添加半透明背景层（更深的背景，确保文字清晰）
-        bg_box = slide.shapes.add_shape(1, x, y, width, height)
-        bg_fill = bg_box.fill
-        bg_fill.solid()
-        bg_fill.fore_color.rgb = RGBColor(0, 0, 0)  # 黑色背景
-        bg_fill.transparency = 0.4  # 40%透明度
-        bg_box.line.fill.background()
-        # 将背景层置于底层
-        slide.shapes._spTree.remove(bg_box._element)
-        slide.shapes._spTree.insert(2, bg_box._element)
-        
         # 添加主文字框（白色背景，更不透明）
         text_box = slide.shapes.add_shape(1, x, y, width, height)
         fill = text_box.fill
@@ -982,14 +972,6 @@ class PPTImageEnhancer:
         
         if len(image_paths) > 1 and os.path.exists(image_paths[1]):
             self.add_picture_safe(slide, image_paths[1], slide_width * 0.3, slide_height * 0.2, slide_width * 0.7, slide_height * 0.6)
-            
-            overlay = slide.shapes.add_shape(1, slide_width * 0.3, slide_height * 0.2, slide_width * 0.7, slide_height * 0.6)
-            overlay.fill.solid()
-            overlay.fill.fore_color.rgb = RGBColor(0, 0, 0)
-            overlay.fill.transparency = 0.3
-            overlay.line.fill.background()
-            slide.shapes._spTree.remove(overlay._element)
-            slide.shapes._spTree.insert(-1, overlay._element)
         
         # 文字框放在底部，降低透明度以提高可读性
         self.add_text_box(slide, combined_text, slide_width * 0.1, slide_height * 0.72, slide_width * 0.8, slide_height * 0.24, transparency=0.1)
