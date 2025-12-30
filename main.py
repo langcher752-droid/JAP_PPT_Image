@@ -171,15 +171,15 @@ class PPTImageEnhancer:
                         img_url = match.replace('\\u003d', '=').replace('\\/', '/')
                         # 跳过缩略图，优先使用原图
                         if 'encrypted-tbn0.gstatic.com' not in img_url or '=s' not in img_url:
-                            image_urls.append(img_url)
-                            if self.verbose:
+                        image_urls.append(img_url)
+                        if self.verbose:
                                 print(f"    [DEBUG] 提取到原图 {len(image_urls)}: {img_url[:60]}...")
                         elif len(image_urls) < count:
                             # 如果是缩略图，尝试提取原图URL（去掉尺寸参数）
                             original_url = img_url.split('=s')[0] if '=s' in img_url else img_url
                             if original_url not in image_urls:
                                 image_urls.append(original_url)
-                                if self.verbose:
+                    if self.verbose:
                                     print(f"    [DEBUG] 提取到原图（从缩略图转换） {len(image_urls)}: {original_url[:60]}...")
                 
                 # 如果原图不够，尝试其他模式
@@ -196,8 +196,8 @@ class PPTImageEnhancer:
                         # 跳过缩略图
                         if 'encrypted-tbn0.gstatic.com' not in url or '=s' not in url:
                             if url not in image_urls:
-                                image_urls.append(url)
-                                if self.verbose:
+                        image_urls.append(url)
+                        if self.verbose:
                                     print(f"    [DEBUG] 提取到图片 {len(image_urls)} (备用): {url[:60]}...")
                     
                     # 模式3：从缩略图URL中提取原图（最后手段）
@@ -469,7 +469,7 @@ class PPTImageEnhancer:
                     break
         
         # 不再使用随机Picsum图片，只使用Google API + Google爬虫的结果
-        if self.verbose:
+            if self.verbose:
             print(f"    [DEBUG] 总共找到 {len(image_urls)} 张图片（不使用随机备用图）")
         
         return image_urls[:count]
@@ -538,6 +538,13 @@ class PPTImageEnhancer:
                         print(f"    [DEBUG] 下载内容大小: {content_size} bytes")
                     
                     if content_size > 1000:  # 至少1KB
+                        # 首先检查是否是HTML错误页面（常见错误响应）
+                        content_str = content[:200].decode('utf-8', errors='ignore').lower()
+                        if content_str.startswith('<!doctype') or content_str.startswith('<html') or '<html' in content_str[:100]:
+                            if self.verbose:
+                                print(f"    [DEBUG] ✗ 下载的内容是HTML页面而不是图片，已跳过: {url}")
+                            return False
+                        
                         # 检查是否是图片格式
                         is_image = False
                         image_format = "未知"
@@ -560,7 +567,8 @@ class PPTImageEnhancer:
                         if self.verbose:
                             print(f"    [DEBUG] 图片格式检测: {image_format}")
                         
-                        if is_image or content_size > 5000:  # 如果大于5KB，即使格式不确定也保存
+                        # 只保存确认是图片格式的文件
+                        if is_image:
                             with open(save_path, 'wb') as f:
                                 f.write(content)
                             if self.verbose:
@@ -568,7 +576,7 @@ class PPTImageEnhancer:
                             return True
                         else:
                             if self.verbose:
-                                print(f"    [DEBUG] ✗ 内容不是有效的图片格式")
+                                print(f"    [DEBUG] ✗ 内容不是有效的图片格式（不是JPEG/PNG/GIF）")
                     else:
                         if self.verbose:
                             print(f"    [DEBUG] ✗ 内容太小 ({content_size} bytes < 1KB)")
@@ -709,14 +717,26 @@ class PPTImageEnhancer:
             supported_formats = ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.tif']
             
             if ext in supported_formats:
-                # 已经是支持的格式，直接返回
+                # 已经是支持的格式，先验证文件确实是图片
+                try:
+                    # 尝试打开图片验证（verify会关闭文件，需要重新打开）
+                    test_img = Image.open(image_path)
+                    test_img.verify()
+                    # verify后需要重新打开，因为verify会关闭文件
+                    test_img = Image.open(image_path)
+                    test_img.close()
+                except Exception as e:
+                    if self.verbose:
+                        print(f"    [DEBUG] 文件扩展名是图片格式，但文件内容无效: {e}")
+                    # 返回原路径，让add_picture_safe处理错误
+                    return image_path
                 return image_path
             
             # 需要转换格式
             if self.verbose:
                 print(f"    [DEBUG] 转换图片格式: {ext} -> PNG")
             
-            # 打开图片
+            # 打开图片（这里会验证文件是否是有效的图片）
             img = Image.open(image_path)
             
             # 如果是RGBA模式，转换为RGB（PNG支持透明度，但为了兼容性转为RGB）
@@ -764,14 +784,20 @@ class PPTImageEnhancer:
         # 先以原始大小插入，再根据max_width/max_height做等比缩放和居中
         try:
             pic = slide.shapes.add_picture(converted_path, x, y)
-        except ValueError as e:
+        except (ValueError, IOError, OSError) as e:
             msg = str(e)
             if "WEBP" in msg.upper():
                 if self.verbose:
                     print(f"    [DEBUG] PowerPoint不支持WEBP图片，已跳过该图片: {converted_path}")
                     print("           如需使用WEBP图片，请安装 Pillow库 并重新运行：pip install Pillow")
                 return None
+            elif "cannot identify image file" in msg.lower() or "not a valid" in msg.lower():
+                if self.verbose:
+                    print(f"    [DEBUG] 无法识别图片文件（可能是无效的图片或HTML页面），已跳过: {converted_path}")
+                return None
             # 其他错误继续抛出，便于排查
+            if self.verbose:
+                print(f"    [DEBUG] 添加图片时发生错误: {msg}")
             raise
         
         # 当前尺寸
@@ -972,7 +998,7 @@ class PPTImageEnhancer:
         
         if len(image_paths) > 1 and os.path.exists(image_paths[1]):
             self.add_picture_safe(slide, image_paths[1], slide_width * 0.3, slide_height * 0.2, slide_width * 0.7, slide_height * 0.6)
-        
+            
         # 文字框放在底部，降低透明度以提高可读性
         self.add_text_box(slide, combined_text, slide_width * 0.1, slide_height * 0.72, slide_width * 0.8, slide_height * 0.24, transparency=0.1)
     

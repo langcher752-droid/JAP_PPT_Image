@@ -44,6 +44,28 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+# 全局错误处理器，确保所有错误都返回JSON
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({'error': '接口不存在', 'status': 'error'}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({'error': '服务器内部错误', 'status': 'error'}), 500
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """捕获所有未处理的异常，确保返回JSON"""
+    error_msg = str(e)
+    error_trace = traceback.format_exc()
+    
+    return jsonify({
+        'status': 'error',
+        'error': error_msg,
+        'trace': error_trace if app.debug else None
+    }), 500
+
+
 # 全局任务状态存储（用于进度查询）
 task_status = {}
 

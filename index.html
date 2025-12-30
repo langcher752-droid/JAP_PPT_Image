@@ -576,7 +576,18 @@
                     body: formData
                 });
 
-                const data = await response.json();
+                // 检查响应类型
+                const contentType = response.headers.get('content-type') || '';
+                let data;
+                
+                if (contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
+                    // 如果不是JSON，尝试解析为文本并显示错误
+                    const text = await response.text();
+                    console.error('服务器返回非JSON响应:', text.substring(0, 200));
+                    throw new Error(`服务器错误 (${response.status}): ${text.substring(0, 100)}`);
+                }
                 
                 if (data.status === 'success') {
                     currentTaskId = data.task_id;
@@ -585,7 +596,18 @@
                     const pollProgress = async () => {
                         try {
                             const progressResponse = await fetch(`${apiUrl}/api/progress/${currentTaskId}`);
-                            const progressData = await progressResponse.json();
+                            
+                            // 检查响应类型
+                            const progressContentType = progressResponse.headers.get('content-type') || '';
+                            let progressData;
+                            
+                            if (progressContentType.includes('application/json')) {
+                                progressData = await progressResponse.json();
+                            } else {
+                                const text = await progressResponse.text();
+                                console.error('进度查询返回非JSON响应:', text.substring(0, 200));
+                                throw new Error('进度查询失败');
+                            }
                             
                             // 更新进度条
                             if (progressData.progress !== undefined) {
