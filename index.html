@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>日语词汇PPT图片增强工具 - 在线版</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 16px;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 60px 20px;
+            text-align: center;
+            background: #f8f9ff;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .upload-area:hover {
+            border-color: #764ba2;
+            background: #f0f2ff;
+        }
+
+        .upload-area.dragover {
+            border-color: #764ba2;
+            background: #e8ebff;
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .upload-text {
+            font-size: 18px;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .upload-hint {
+            font-size: 14px;
+            color: #999;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .file-info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0f2ff;
+            border-radius: 10px;
+            display: none;
+        }
+
+        .file-info.show {
+            display: block;
+        }
+
+        .file-name {
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .file-size {
+            font-size: 14px;
+            color: #666;
+        }
+
+        .button {
+            width: 100%;
+            padding: 15px;
+            font-size: 18px;
+            font-weight: bold;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 20px;
+        }
+
+        .button-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .button-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .button-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .button-secondary {
+            background: #f0f0f0;
+            color: #666;
+        }
+
+        .button-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .progress-container {
+            margin-top: 30px;
+            display: none;
+        }
+
+        .progress-container.show {
+            display: block;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: #f0f0f0;
+            border-radius: 15px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .progress-text {
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .log-container {
+            max-height: 300px;
+            overflow-y: auto;
+            background: #1e1e1e;
+            border-radius: 10px;
+            padding: 15px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            display: none;
+        }
+
+        .log-container.show {
+            display: block;
+        }
+
+        .log-line {
+            color: #d4d4d4;
+            margin-bottom: 5px;
+            word-break: break-all;
+        }
+
+        .log-line.success {
+            color: #4EC9B0;
+        }
+
+        .log-line.error {
+            color: #F48771;
+        }
+
+        .log-line.warning {
+            color: #DCDCAA;
+        }
+
+        .log-line.debug {
+            color: #9CDCFE;
+        }
+
+        .result-container {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f0f9ff;
+            border-radius: 10px;
+            border: 2px solid #4EC9B0;
+            display: none;
+        }
+
+        .result-container.show {
+            display: block;
+        }
+
+        .result-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #4EC9B0;
+            margin-bottom: 15px;
+        }
+
+        .config-section {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9ff;
+            border-radius: 10px;
+        }
+
+        .config-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .config-input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .config-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .status-indicator.online {
+            background: #4EC9B0;
+        }
+
+        .status-indicator.offline {
+            background: #F48771;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📚 日语词汇PPT图片增强工具</h1>
+            <p>自动为PPT中的日语词汇搜索相关图片并添加到页面中</p>
+            <p style="margin-top: 10px; font-size: 14px;">
+                <span class="status-indicator" id="statusIndicator"></span>
+                <span id="statusText">检查服务器状态...</span>
+            </p>
+        </div>
+
+        <div class="content">
+            <!-- 配置区域 -->
+            <div class="config-section">
+                <div class="config-title">⚙️ API服务器地址</div>
+                <input type="text" id="apiUrl" class="config-input" 
+                       placeholder="https://your-server.com" 
+                       value="http://34.168.121.40">
+                <button class="button button-secondary" onclick="checkServer()">检查连接</button>
+            </div>
+
+            <div class="config-section">
+                <div class="config-title">🔑 自定义API配置（可选，优先使用这里的Key）</div>
+                <input type="text" id="sparkApiKey" class="config-input" 
+                       placeholder="Spark API Key（APIPassword 或 AK:SK，存储在本机浏览器，不会上传给其他人）">
+                <input type="text" id="googleApiKey" class="config-input" 
+                       placeholder="Google API Key（Custom Search API）">
+                <input type="text" id="googleCseId" class="config-input" 
+                       placeholder="Google Custom Search Engine ID（CSE ID）">
+                <small style="color:#666; line-height:1.6;">
+                    说明：<br>
+                    - 如果留空，则使用服务器默认配置（由站长在服务器上配置）<br>
+                    - 如果填写，则本次处理会优先使用你自己的Key，Key只保存在你的浏览器本地，并只在请求时发送给服务器，不会被页面代码记录到其他地方。<br>
+                    - 你可以在不同浏览器/设备上配置不同的Key。
+                </small>
+            </div>
+
+            <!-- 上传区域 -->
+            <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+                <div class="upload-icon">📄</div>
+                <div class="upload-text">点击或拖拽PPT文件到这里</div>
+                <div class="upload-hint">支持 .pptx 和 .ppt 格式，最大100MB</div>
+            </div>
+
+            <input type="file" id="fileInput" accept=".pptx,.ppt" />
+
+            <div class="file-info" id="fileInfo">
+                <div class="file-name" id="fileName"></div>
+                <div class="file-size" id="fileSize"></div>
+            </div>
+
+            <button class="button button-primary" id="processBtn" onclick="processFile()" disabled>
+                开始处理
+            </button>
+
+            <!-- 进度区域 -->
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-text" id="progressText">准备处理...</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill">0%</div>
+                </div>
+                <div class="log-container" id="logContainer"></div>
+            </div>
+
+            <!-- 结果区域 -->
+            <div class="result-container" id="resultContainer">
+                <div class="result-title">✅ 处理完成！</div>
+                <button class="button button-primary" id="downloadBtn" onclick="downloadFile()">
+                    下载处理后的PPT
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentTaskId = null;
+        let apiUrl = 'http://localhost:5000';
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            // 从localStorage读取API URL
+            const savedUrl = localStorage.getItem('apiUrl');
+            if (savedUrl) {
+                document.getElementById('apiUrl').value = savedUrl;
+                apiUrl = savedUrl;
+            }
+            // 读取用户的API Key（仅存储在当前浏览器）
+            const savedSparkKey = localStorage.getItem('sparkApiKey');
+            const savedGoogleKey = localStorage.getItem('googleApiKey');
+            const savedGoogleCseId = localStorage.getItem('googleCseId');
+            if (savedSparkKey) document.getElementById('sparkApiKey').value = savedSparkKey;
+            if (savedGoogleKey) document.getElementById('googleApiKey').value = savedGoogleKey;
+            if (savedGoogleCseId) document.getElementById('googleCseId').value = savedGoogleCseId;
+            
+            checkServer();
+            setupFileUpload();
+        });
+
+        // 设置文件上传
+        function setupFileUpload() {
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('fileInput');
+
+            // 点击上传
+            fileInput.addEventListener('change', function(e) {
+                handleFile(e.target.files[0]);
+            });
+
+            // 拖拽上传
+            uploadArea.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+
+            uploadArea.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+            });
+
+            uploadArea.addEventListener('drop', function(e) {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                handleFile(e.dataTransfer.files[0]);
+            });
+        }
+
+        // 处理文件选择
+        function handleFile(file) {
+            if (!file) return;
+
+            if (!file.name.match(/\.(pptx|ppt)$/i)) {
+                alert('请选择PPT文件（.pptx 或 .ppt）');
+                return;
+            }
+
+            if (file.size > 100 * 1024 * 1024) {
+                alert('文件太大，最大支持100MB');
+                return;
+            }
+
+            document.getElementById('fileName').textContent = file.name;
+            document.getElementById('fileSize').textContent = `大小: ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+            document.getElementById('fileInfo').classList.add('show');
+            document.getElementById('processBtn').disabled = false;
+        }
+
+        // 检查服务器状态
+        async function checkServer() {
+            const url = document.getElementById('apiUrl').value.trim();
+            if (!url) {
+                updateStatus(false, '请输入API服务器地址');
+                return;
+            }
+
+            apiUrl = url;
+            localStorage.setItem('apiUrl', url);
+
+            try {
+                const response = await fetch(`${apiUrl}/api/health`);
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    let msg = '服务器连接正常';
+                    if (!data.server_google_api_configured || !data.server_spark_api_configured) {
+                        msg += '（提示：可在下方填写你自己的API Key）';
+                    }
+                    updateStatus(true, msg);
+                } else {
+                    updateStatus(false, '服务器响应异常');
+                }
+            } catch (error) {
+                updateStatus(false, '无法连接到服务器');
+            }
+        }
+
+        // 更新状态指示器
+        function updateStatus(online, text) {
+            const indicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('statusText');
+            
+            indicator.className = 'status-indicator ' + (online ? 'online' : 'offline');
+            statusText.textContent = text;
+        }
+
+        // 处理文件
+        async function processFile() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('请先选择文件');
+                return;
+            }
+
+            // 重置UI
+            document.getElementById('processBtn').disabled = true;
+            document.getElementById('progressContainer').classList.add('show');
+            document.getElementById('resultContainer').classList.remove('show');
+            document.getElementById('logContainer').innerHTML = '';
+            document.getElementById('progressFill').style.width = '0%';
+            document.getElementById('progressFill').textContent = '0%';
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            // 读取用户API配置（如果填写则一并发送给后端，仅在本次请求中使用）
+            const sparkKey = document.getElementById('sparkApiKey').value.trim();
+            const googleKey = document.getElementById('googleApiKey').value.trim();
+            const googleCseId = document.getElementById('googleCseId').value.trim();
+
+            if (sparkKey) {
+                formData.append('spark_api_key', sparkKey);
+                localStorage.setItem('sparkApiKey', sparkKey);
+            }
+            if (googleKey) {
+                formData.append('google_api_key', googleKey);
+                localStorage.setItem('googleApiKey', googleKey);
+            }
+            if (googleCseId) {
+                formData.append('google_cse_id', googleCseId);
+                localStorage.setItem('googleCseId', googleCseId);
+            }
+
+            try {
+                addLog('正在上传文件...', 'info');
+                document.getElementById('progressFill').style.width = '10%';
+                document.getElementById('progressFill').textContent = '10%';
+
+                const response = await fetch(`${apiUrl}/api/process`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    currentTaskId = data.task_id;
+                    addLog('处理完成！', 'success');
+                    document.getElementById('progressFill').style.width = '100%';
+                    document.getElementById('progressFill').textContent = '100%';
+                    
+                    // 显示日志
+                    if (data.logs && data.logs.length > 0) {
+                        document.getElementById('logContainer').classList.add('show');
+                        data.logs.forEach(log => {
+                            addLog(log, 'info');
+                        });
+                    }
+                    
+                    // 显示结果
+                    document.getElementById('resultContainer').classList.add('show');
+                } else {
+                    throw new Error(data.error || '处理失败');
+                }
+            } catch (error) {
+                addLog(`错误: ${error.message}`, 'error');
+                alert(`处理失败: ${error.message}`);
+            } finally {
+                document.getElementById('processBtn').disabled = false;
+            }
+        }
+
+        // 下载文件
+        function downloadFile() {
+            if (!currentTaskId) {
+                alert('没有可下载的文件');
+                return;
+            }
+
+            window.location.href = `${apiUrl}/api/download/${currentTaskId}`;
+        }
+
+        // 添加日志
+        function addLog(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const logLine = document.createElement('div');
+            logLine.className = `log-line ${type}`;
+            logLine.textContent = message;
+            logContainer.appendChild(logLine);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+    </script>
+</body>
+</html>
+
