@@ -396,7 +396,10 @@
             if (savedGoogleKey) document.getElementById('googleApiKey').value = savedGoogleKey;
             if (savedGoogleCseId) document.getElementById('googleCseId').value = savedGoogleCseId;
             
-            checkServer();
+            // 延迟检查服务器，避免页面加载时立即弹出错误
+            setTimeout(() => {
+                checkServer(true); // 传入true表示静默检查（不弹窗）
+            }, 1000);
             setupFileUpload();
         });
 
@@ -470,7 +473,8 @@
         }
 
         // 检查服务器状态
-        async function checkServer() {
+        // silent: 如果为true，失败时不显示alert，只更新状态
+        async function checkServer(silent = false) {
             const urlInput = document.getElementById('apiUrl');
             let url = urlInput.value.trim();
             
@@ -506,8 +510,10 @@
                     // 如果不是JSON，尝试解析为文本
                     const text = await response.text();
                     console.error('服务器返回非JSON响应:', text.substring(0, 200));
-                    updateStatus(false, `服务器错误 (${response.status}): 返回了HTML而不是JSON`);
-                    alert(`无法连接到服务器：服务器返回了HTML页面而不是JSON响应。\n\n请检查：\n1. URL是否正确：${apiUrl}\n2. 服务器是否正常运行\n3. 是否使用了HTTPS`);
+                    updateStatus(false, `服务器错误 (${response.status})`);
+                    if (!silent) {
+                        alert(`无法连接到服务器：服务器返回了HTML页面而不是JSON响应。\n\n请检查：\n1. URL是否正确：${apiUrl}\n2. 服务器是否正常运行\n3. 是否使用了HTTPS`);
+                    }
                     return;
                 }
                 
@@ -519,23 +525,41 @@
                     statusDetails.push(`Google AI (Gemini): ${data.server_google_ai_configured ? '✓ 已配置' : '✗ 未配置'}`);
                     statusDetails.push(`Spark AI: ${data.server_spark_api_configured ? '✓ 已配置' : '✗ 未配置'}`);
                     
-                    const msg = statusDetails.join('\n');
-                    alert(msg + '\n\n提示：如果服务器未配置API Key，可在下方填写你自己的Key');
                     updateStatus(true, '服务器连接正常');
+                    
+                    // 只在手动点击"检查连接"按钮时显示详细信息
+                    if (!silent) {
+                        const msg = statusDetails.join('\n');
+                        alert(msg + '\n\n提示：如果服务器未配置API Key，可在下方填写你自己的Key');
+                    }
                 } else {
                     updateStatus(false, '服务器响应异常');
-                    alert('服务器响应异常: ' + (data.message || '未知错误'));
+                    if (!silent) {
+                        alert('服务器响应异常: ' + (data.message || '未知错误'));
+                    }
                 }
             } catch (error) {
-                updateStatus(false, '无法连接到服务器');
-                let errorMsg = error.message;
-                
-                // 如果是JSON解析错误，提供更友好的提示
-                if (error.message.includes('JSON') || error.message.includes('Unexpected token')) {
-                    errorMsg = `服务器返回了非JSON响应（可能是HTML错误页面）。\n\n请检查：\n1. URL是否正确：${apiUrl}\n2. 服务器是否正常运行\n3. 是否使用了HTTPS协议`;
+                // 根据错误类型设置状态文本
+                let statusText = '无法连接到服务器';
+                if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+                    statusText = '网络连接失败';
+                } else if (error.message.includes('JSON') || error.message.includes('Unexpected token')) {
+                    statusText = '服务器返回了非JSON响应';
                 }
                 
-                alert('无法连接到服务器: ' + errorMsg);
+                updateStatus(false, statusText);
+                
+                // 只在手动点击"检查连接"按钮时显示错误详情
+                if (!silent) {
+                    let errorMsg = error.message;
+                    
+                    // 如果是JSON解析错误，提供更友好的提示
+                    if (error.message.includes('JSON') || error.message.includes('Unexpected token')) {
+                        errorMsg = `服务器返回了非JSON响应（可能是HTML错误页面）。\n\n请检查：\n1. URL是否正确：${apiUrl}\n2. 服务器是否正常运行\n3. 是否使用了HTTPS协议`;
+                    }
+                    
+                    alert('无法连接到服务器: ' + errorMsg);
+                }
             }
         }
 
