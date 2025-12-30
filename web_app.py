@@ -162,13 +162,13 @@ def process_ppt():
             if not os.path.exists(output_path):
                 raise Exception("处理完成但输出文件不存在")
             
-            # 返回成功响应
+            # 返回成功响应（返回全部日志，不再截断）
             return jsonify({
                 'status': 'success',
                 'task_id': task_id,
                 'message': '处理完成',
                 'output_filename': output_filename,
-                'logs': progress_logger.get_logs()[-50:]  # 返回最后50条日志
+                'logs': progress_logger.get_logs()  # 返回全部日志
             })
             
         finally:

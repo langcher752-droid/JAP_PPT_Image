@@ -260,12 +260,16 @@ class PPTImageEnhancer:
             
             if self.verbose:
                 print(f"    [DEBUG] 调用Spark AI优化关键词: {japanese_text}")
+                print(f"    [DEBUG] Spark API请求URL: {endpoint}")
             
             response = requests.post(endpoint, json=payload, headers=headers, timeout=30)
             response.raise_for_status()
             
             result = response.json()
             content = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+            
+            if self.verbose:
+                print(f"    [DEBUG] Spark AI原始响应: {content[:100]}...")
             
             # Clean output: keep only the first line, strip quotes and extra labels
             optimized_keyword = content.split('\n')[0].strip()
@@ -658,10 +662,10 @@ class PPTImageEnhancer:
         if orig_w <= 0 or orig_h <= 0:
             return pic
         
-        # 计算等比缩放因子，使图片完全落在指定框内
+        # 计算等比缩放因子，使图片尽可能大地填充指定框（允许放大）
         scale_w = max_width / orig_w
         scale_h = max_height / orig_h
-        scale = min(scale_w, scale_h, 1.0)  # 不强制放大，只缩小或保持原尺寸
+        scale = min(scale_w, scale_h)  # 允许放大，让图片尽可能大
         
         new_w = int(orig_w * scale)
         new_h = int(orig_h * scale)
@@ -942,12 +946,11 @@ class PPTImageEnhancer:
         slide_width = self.prs.slide_width
         slide_height = self.prs.slide_height
         
-        # 删除现有的图片和形状
+        # 删除现有的所有内容（图片、形状、文本框等），避免重复显示
         shapes_to_remove = []
         for shape in slide.shapes:
-            if shape.shape_type == 13:  # 图片类型
-                shapes_to_remove.append(shape)
-            elif shape.shape_type == 1:  # 形状类型
+            # 13=图片, 1=形状, 17=文本框, 14=占位符等
+            if shape.shape_type in [13, 1, 17, 14]:
                 shapes_to_remove.append(shape)
         
         for shape in shapes_to_remove:
@@ -1020,34 +1023,96 @@ class PPTImageEnhancer:
                 else:
                     print(f" ✗ 失败")
             
-            # 如果本轮下载没有成功的图片，尝试重新搜索一次（仅使用首行文本，强制用Google）
-            if not image_paths:
-                print(f"  ✗ 本轮图片下载失败，尝试使用首行文本重新搜索...")
-                # 使用第一行文本作为更精简的关键词
+            # 强制要求必须有2张图片，如果不够则反复搜索直到找到2张
+            max_retries = 5  # 最多重试5次
+            retry_count = 0
+            
+            while len(image_paths) < 2 and retry_count < max_retries:
+                if retry_count == 0 and not image_paths:
+                    print(f"  ✗ 本轮图片下载失败，尝试使用首行文本重新搜索...")
+                elif len(image_paths) < 2:
+                    print(f"  ✗ 图片数量不足({len(image_paths)}/2)，继续搜索...")
+                
+                # 使用第一行文本作为更精简的关键词，或者用Spark AI优化关键词
                 retry_keyword = texts[0] if texts else search_keyword
+                
+                # 如果配置了Spark AI，尝试用AI优化关键词
+                if self.spark_api_key and retry_count > 0:
+                    if self.verbose:
+                        print(f"    [DEBUG] 使用Spark AI优化关键词（第{retry_count+1}次重试）")
+                    optimized = self.optimize_search_keyword_with_spark(retry_keyword)
+                    if optimized:
+                        retry_keyword = optimized
+                        if self.verbose:
+                            print(f"    [DEBUG] Spark AI优化后的关键词: {optimized}")
+                
                 # 重新搜索（search_images内部仍然优先用Google API和Google爬虫）
                 retry_urls = self.search_images(retry_keyword, count=2)
+                
                 # 再尝试下载
                 for i, url in enumerate(retry_urls):
-                    image_path = os.path.join(temp_dir, f"slide_{idx}_retry_img_{i}.jpg")
+                    if len(image_paths) >= 2:
+                        break
+                    image_path = os.path.join(temp_dir, f"slide_{idx}_retry{retry_count}_img_{i}.jpg")
                     if url.lower().endswith('.webp'):
-                        print(f"  重新下载图片 {i+1}/2... ✗ 跳过WEBP链接: {url}")
+                        if self.verbose:
+                            print(f"  重新下载图片 {len(image_paths)+1}/2... ✗ 跳过WEBP链接: {url[:60]}...")
                         continue
-                    print(f"  重新下载图片 {i+1}/2...", end='', flush=True)
+                    print(f"  重新下载图片 {len(image_paths)+1}/2...", end='', flush=True)
                     if self.download_image(url, image_path):
                         image_paths.append(image_path)
                         print(f" ✓ 成功")
                     else:
                         print(f" ✗ 失败")
+                
+                retry_count += 1
             
-            # 如果图片下载成功，添加到幻灯片（最多使用2张）
+            # 如果图片下载成功，添加到幻灯片（必须使用2张，如果只有1张则重复使用）
             if image_paths:
+                # 确保有2张图片（如果只有1张，复制一份）
+                while len(image_paths) < 2:
+                    import shutil
+                    single_img = image_paths[0]
+                    dup_path = single_img.replace('.jpg', '_dup.jpg')
+                    shutil.copy2(single_img, dup_path)
+                    image_paths.append(dup_path)
+                    if self.verbose:
+                        print(f"    [DEBUG] 图片不足2张，复制图片以补足: {dup_path}")
+                
                 image_paths = image_paths[:2]
                 print(f"  正在添加图片到幻灯片...")
                 self.add_creative_layout(slide, image_paths, texts)
                 print(f"  ✓ 第 {idx + 1} 页处理完成（模板ID: {self.last_template_id}，图片数: {len(image_paths)})")
             else:
-                print(f"  ✗ 第 {idx + 1} 页两次搜索均未获得可用图片，保留原始文字布局")
+                print(f"  ✗ 第 {idx + 1} 页经过{max_retries}次搜索仍无法获得图片，使用备用方案")
+                # 最后的备用方案：使用通用关键词强制搜索
+                fallback_keywords = ["japanese language", "japan culture", "learning japanese"]
+                for fb_keyword in fallback_keywords:
+                    if len(image_paths) >= 2:
+                        break
+                    fb_urls = self.search_images(fb_keyword, count=2)
+                    for i, url in enumerate(fb_urls):
+                        if len(image_paths) >= 2:
+                            break
+                        image_path = os.path.join(temp_dir, f"slide_{idx}_fallback_img_{i}.jpg")
+                        if url.lower().endswith('.webp'):
+                            continue
+                        if self.download_image(url, image_path):
+                            image_paths.append(image_path)
+                
+                if image_paths:
+                    while len(image_paths) < 2:
+                        import shutil
+                        single_img = image_paths[0]
+                        dup_path = single_img.replace('.jpg', '_dup.jpg')
+                        shutil.copy2(single_img, dup_path)
+                        image_paths.append(dup_path)
+                    image_paths = image_paths[:2]
+                    print(f"  正在添加图片到幻灯片（使用备用图片）...")
+                    self.add_creative_layout(slide, image_paths, texts)
+                    print(f"  ✓ 第 {idx + 1} 页处理完成（模板ID: {self.last_template_id}，图片数: {len(image_paths)})")
+                else:
+                    print(f"  ✗ 第 {idx + 1} 页所有搜索方案均失败，保留原始文字布局")
             
             # 打印整体进度
             self.print_progress(idx + 1, total_slides)
