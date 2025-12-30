@@ -305,22 +305,25 @@
                 <div class="config-title">⚙️ API服务器地址</div>
                 <input type="text" id="apiUrl" class="config-input" 
                        placeholder="https://your-server.com" 
-                       value="http://34.168.121.40">
+                       value="">
                 <button class="button button-secondary" onclick="checkServer()">检查连接</button>
             </div>
 
             <div class="config-section">
                 <div class="config-title">🔑 自定义API配置（可选，优先使用这里的Key）</div>
+                <input type="text" id="googleAiApiKey" class="config-input" 
+                       placeholder="Google AI (Gemini) API Key（优先使用，用于优化搜索关键词）">
                 <input type="text" id="sparkApiKey" class="config-input" 
-                       placeholder="Spark API Key（APIPassword 或 AK:SK，存储在本机浏览器，不会上传给其他人）">
+                       placeholder="Spark API Key（Gemini失败时使用，APIPassword 或 AK:SK）">
                 <input type="text" id="googleApiKey" class="config-input" 
-                       placeholder="Google API Key（Custom Search API）">
+                       placeholder="Google Custom Search API Key（用于图片搜索）">
                 <input type="text" id="googleCseId" class="config-input" 
                        placeholder="Google Custom Search Engine ID（CSE ID）">
                 <small style="color:#666; line-height:1.6;">
                     说明：<br>
                     - 如果留空，则使用服务器默认配置（由站长在服务器上配置）<br>
                     - 如果填写，则本次处理会优先使用你自己的Key，Key只保存在你的浏览器本地，并只在请求时发送给服务器，不会被页面代码记录到其他地方。<br>
+                    - AI优化关键词：优先使用Google Gemini，失败则使用Spark AI<br>
                     - 你可以在不同浏览器/设备上配置不同的Key。
                 </small>
             </div>
@@ -494,10 +497,15 @@
             formData.append('file', file);
 
             // 读取用户API配置（如果填写则一并发送给后端，仅在本次请求中使用）
+            const googleAiKey = document.getElementById('googleAiApiKey').value.trim();
             const sparkKey = document.getElementById('sparkApiKey').value.trim();
             const googleKey = document.getElementById('googleApiKey').value.trim();
             const googleCseId = document.getElementById('googleCseId').value.trim();
 
+            if (googleAiKey) {
+                formData.append('google_ai_api_key', googleAiKey);
+                localStorage.setItem('googleAiApiKey', googleAiKey);
+            }
             if (sparkKey) {
                 formData.append('spark_api_key', sparkKey);
                 localStorage.setItem('sparkApiKey', sparkKey);
