@@ -28,11 +28,12 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 # 加载配置（从环境变量或config.json）
-google_api_key, google_cse_id, spark_api_key, spark_base_url, spark_model = load_config()
+google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model = load_config()
 
 # 如果环境变量中有配置，优先使用环境变量
 google_api_key = os.getenv('GOOGLE_API_KEY', google_api_key)
 google_cse_id = os.getenv('GOOGLE_CSE_ID', google_cse_id)
+google_ai_api_key = os.getenv('GOOGLE_AI_API_KEY', google_ai_api_key)
 spark_api_key = os.getenv('SPARK_API_KEY', spark_api_key)
 spark_base_url = os.getenv('SPARK_BASE_URL', spark_base_url)
 spark_model = os.getenv('SPARK_MODEL', spark_model)
@@ -83,9 +84,11 @@ def health_check():
         'status': 'ok',
         'message': 'PPT图片增强服务运行正常',
         'supports_google_custom_search': True,
+        'supports_google_ai': True,
         'supports_spark_ai': True,
         # 仅表示后端代码支持这些类型，不代表已经配置好密钥
         'server_google_api_configured': bool(google_api_key and google_cse_id),
+        'server_google_ai_configured': bool(google_ai_api_key),
         'server_spark_api_configured': bool(spark_api_key)
     })
 
@@ -115,6 +118,7 @@ def process_ppt():
     # 这些Key只在本次请求中使用，不会保存到任何地方
     req_google_api_key = request.form.get('google_api_key') or google_api_key
     req_google_cse_id = request.form.get('google_cse_id') or google_cse_id
+    req_google_ai_api_key = request.form.get('google_ai_api_key') or google_ai_api_key
     req_spark_api_key = request.form.get('spark_api_key') or spark_api_key
     req_spark_base_url = request.form.get('spark_base_url') or spark_base_url
     req_spark_model = request.form.get('spark_model') or spark_model
@@ -150,6 +154,7 @@ def process_ppt():
                 output_path=output_path,
                 google_api_key=req_google_api_key,
                 google_cse_id=req_google_cse_id,
+                google_ai_api_key=req_google_ai_api_key,
                 spark_api_key=req_spark_api_key,
                 spark_base_url=req_spark_base_url,
                 spark_model=req_spark_model,

@@ -22,7 +22,7 @@ except ImportError:
 
 class PPTImageEnhancer:
     def __init__(self, ppt_path, output_path=None, google_api_key=None, google_cse_id=None, 
-                 spark_api_key=None, spark_base_url=None, spark_model=None, verbose=True):
+                 google_ai_api_key=None, spark_api_key=None, spark_base_url=None, spark_model=None, verbose=True):
         """
         初始化PPT图片增强器
         
@@ -31,7 +31,8 @@ class PPTImageEnhancer:
             output_path: 输出PPT文件路径（如果为None，则在原文件名后加_enhanced）
             google_api_key: Google Custom Search API Key（可选）
             google_cse_id: Google Custom Search Engine ID（可选）
-            spark_api_key: Spark AI API Key（可选，用于优化搜索关键词）
+            google_ai_api_key: Google AI (Gemini) API Key（可选，优先用于优化搜索关键词）
+            spark_api_key: Spark AI API Key（可选，Gemini失败时使用）
             spark_base_url: Spark AI Base URL（可选）
             spark_model: Spark AI Model（可选）
             verbose: 是否显示详细日志
@@ -47,6 +48,7 @@ class PPTImageEnhancer:
         self.image_cache = {}  # 缓存已下载的图片
         self.google_api_key = google_api_key
         self.google_cse_id = google_cse_id
+        self.google_ai_api_key = google_ai_api_key
         self.spark_api_key = spark_api_key
         self.spark_base_url = spark_base_url or "https://spark-api-open.xf-yun.com/v2"
         self.spark_model = spark_model or "spark-x"
@@ -58,10 +60,12 @@ class PPTImageEnhancer:
                 print(f"[INFO] Google Custom Search API已配置")
             else:
                 print(f"[INFO] Google API未配置，将使用备用方案")
+            if self.google_ai_api_key:
+                print(f"[INFO] Google AI (Gemini) API已配置，将优先用于优化搜索关键词")
             if self.spark_api_key:
-                print(f"[INFO] Spark AI API已配置，将用于优化搜索关键词")
-            else:
-                print(f"[INFO] Spark AI API未配置，将直接使用原始关键词搜索")
+                print(f"[INFO] Spark AI API已配置，Gemini失败时将使用Spark")
+            if not self.google_ai_api_key and not self.spark_api_key:
+                print(f"[INFO] AI API未配置，将直接使用原始关键词搜索")
         
     def search_images_google_api(self, keyword, count=2):
         """
@@ -157,50 +161,73 @@ class PPTImageEnhancer:
                 html = response.text
                 
                 # 模式1：旧版Google图片结果中的"ou"原始图片URL
-                pattern = r'"ou":"([^"]+)"'  # 原始图片URL
-                matches = re.findall(pattern, html)
+                # 优先提取原图URL（"ou"字段），避免使用缩略图
+                pattern_ou = r'"ou":"([^"]+)"'  # 原始图片URL（高分辨率）
+                matches_ou = re.findall(pattern_ou, html)
                 
-                if matches:
-                    for i, match in enumerate(matches[:count]):
+                if matches_ou:
+                    for i, match in enumerate(matches_ou[:count]):
                         img_url = match.replace('\\u003d', '=').replace('\\/', '/')
-                        image_urls.append(img_url)
-                        if self.verbose:
-                            print(f"    [DEBUG] 提取到图片 {i+1}: {img_url[:60]}...")
-                else:
-                    if self.verbose:
-                        print(f"    [DEBUG] 未找到图片URL模式，尝试备用模式")
-                    
-                    # 模式2：通用的 jpg/png/webp 链接
-                    pattern2 = r'"(https://[^"]+\.(jpg|jpeg|png|webp)[^"]*)"'
-                    matches2 = re.findall(pattern2, html, re.IGNORECASE)
-                    for i, (url, ext) in enumerate(matches2[:count]):
-                        image_urls.append(url)
-                        if self.verbose:
-                            print(f"    [DEBUG] 提取到图片 {i+1} (备用): {url[:60]}...")
-                    
-                    # 模式3：新版Google图片中的缩略图地址（encrypted-tbn0.gstatic.com）
-                    if len(image_urls) < count:
-                        pattern3 = r'https://encrypted-tbn0\.gstatic\.com/images[^"]+'
-                        matches3 = re.findall(pattern3, html)
-                        for i, url in enumerate(matches3[: (count - len(image_urls))]):
-                            image_urls.append(url)
+                        # 跳过缩略图，优先使用原图
+                        if 'encrypted-tbn0.gstatic.com' not in img_url or '=s' not in img_url:
+                            image_urls.append(img_url)
                             if self.verbose:
-                                print(f"    [DEBUG] 提取到图片 {len(image_urls)} (缩略图): {url[:60]}...")
+                                print(f"    [DEBUG] 提取到原图 {len(image_urls)}: {img_url[:60]}...")
+                        elif len(image_urls) < count:
+                            # 如果是缩略图，尝试提取原图URL（去掉尺寸参数）
+                            original_url = img_url.split('=s')[0] if '=s' in img_url else img_url
+                            if original_url not in image_urls:
+                                image_urls.append(original_url)
+                                if self.verbose:
+                                    print(f"    [DEBUG] 提取到原图（从缩略图转换） {len(image_urls)}: {original_url[:60]}...")
+                
+                # 如果原图不够，尝试其他模式
+                if len(image_urls) < count:
+                    if self.verbose:
+                        print(f"    [DEBUG] 原图结果不足({len(image_urls)}/{count})，尝试其他模式")
                     
-                    # 模式4：兜底，从<img>标签中提取src
+                    # 模式2：通用的 jpg/png/webp 链接（排除缩略图）
+                    pattern2 = r'"(https://[^"]+\.(jpg|jpeg|png)[^"]*)"'
+                    matches2 = re.findall(pattern2, html, re.IGNORECASE)
+                    for url, ext in matches2:
+                        if len(image_urls) >= count:
+                            break
+                        # 跳过缩略图
+                        if 'encrypted-tbn0.gstatic.com' not in url or '=s' not in url:
+                            if url not in image_urls:
+                                image_urls.append(url)
+                                if self.verbose:
+                                    print(f"    [DEBUG] 提取到图片 {len(image_urls)} (备用): {url[:60]}...")
+                    
+                    # 模式3：从缩略图URL中提取原图（最后手段）
+                    if len(image_urls) < count:
+                        pattern3 = r'https://encrypted-tbn0\.gstatic\.com/images\?q=tbn:([^"&]+)'
+                        matches3 = re.findall(pattern3, html)
+                        for tbn_id in matches3[: (count - len(image_urls))]:
+                            # 尝试构建可能的原图URL（但这不总是有效）
+                            # 优先使用已经提取到的URL
+                            pass
+                    
+                    # 模式4：兜底，从<img>标签中提取src（排除缩略图）
                     if len(image_urls) < count:
                         if self.verbose:
-                            print(f"    [DEBUG] 前两种模式结果不足({len(image_urls)}/{count})，尝试从<img>标签中提取")
+                            print(f"    [DEBUG] 前几种模式结果不足({len(image_urls)}/{count})，尝试从<img>标签中提取")
                         img_pattern = r'<img[^>]+src="(https://[^"]+)"'
                         img_matches = re.findall(img_pattern, html, re.IGNORECASE)
                         for url in img_matches:
-                            # 简单过滤一下明显不是图片的资源
-                            if any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png']) or 'gstatic.com' in url:
-                                image_urls.append(url)
-                                if self.verbose:
-                                    print(f"    [DEBUG] 提取到图片 (img标签): {url[:60]}...")
-                                if len(image_urls) >= count:
-                                    break
+                            if len(image_urls) >= count:
+                                break
+                            # 优先选择明显是原图的URL（包含常见图片域名）
+                            if any(domain in url.lower() for domain in ['i.imgur.com', 'images.unsplash.com', 'pixabay.com', 'pexels.com']):
+                                if url not in image_urls:
+                                    image_urls.append(url)
+                                    if self.verbose:
+                                        print(f"    [DEBUG] 提取到图片 (img标签-原图): {url[:60]}...")
+                            elif any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png']) and 'encrypted-tbn0' not in url:
+                                if url not in image_urls:
+                                    image_urls.append(url)
+                                    if self.verbose:
+                                        print(f"    [DEBUG] 提取到图片 (img标签): {url[:60]}...")
             else:
                 if self.verbose:
                     print(f"    [DEBUG] Google搜索失败: {response.status_code}")
@@ -210,6 +237,91 @@ class PPTImageEnhancer:
                 print(f"    [DEBUG] Google爬取异常: {str(e)}")
         
         return image_urls
+    
+    def optimize_search_keyword_with_gemini(self, japanese_text):
+        """
+        Use Google Gemini AI to optimize an image search keyword (优先使用).
+        
+        Args:
+            japanese_text: Japanese text from the slide.
+            
+        Returns:
+            Optimized search keyword (short English phrase), or None if optimization fails.
+        """
+        if not self.google_ai_api_key:
+            return None
+        
+        try:
+            prompt = (
+                "You are helping to search images on Google Images.\n"
+                "Given the following Japanese word or short phrase:\n"
+                f"{japanese_text}\n\n"
+                "Task:\n"
+                "1. Generate ONE short English search query that will find images closely related\n"
+                "   to the meaning of this Japanese word.\n"
+                "2. The query should be at most 4–5 English words (very short).\n"
+                "3. Output ONLY the English query text, without any explanation, quotes or extra words.\n"
+                "4. If the Japanese word is a concrete thing (object, animal, food, place, action),\n"
+                "   translate or describe it directly. If it is abstract, choose a concrete visual\n"
+                "   concept that represents it (for example, a scene or object people can see).\n\n"
+                "English search query:"
+            )
+            
+            url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"
+            params = {'key': self.google_ai_api_key}
+            payload = {
+                "contents": [{
+                    "parts": [{"text": prompt}]
+                }],
+                "generationConfig": {
+                    "temperature": 0.7,
+                    "maxOutputTokens": 50
+                }
+            }
+            
+            if self.verbose:
+                print(f"    [DEBUG] 调用Google Gemini AI优化关键词: {japanese_text}")
+                print(f"    [DEBUG] Gemini API请求URL: {url}")
+            
+            response = requests.post(url, params=params, json=payload, timeout=30)
+            response.raise_for_status()
+            
+            result = response.json()
+            candidates = result.get("candidates", [])
+            if not candidates:
+                if self.verbose:
+                    print(f"    [DEBUG] Gemini API未返回候选结果")
+                return None
+            
+            content_parts = candidates[0].get("content", {}).get("parts", [])
+            if not content_parts:
+                if self.verbose:
+                    print(f"    [DEBUG] Gemini API响应格式异常")
+                return None
+            
+            content = content_parts[0].get("text", "").strip()
+            
+            if self.verbose:
+                print(f"    [DEBUG] Gemini AI原始响应: {content[:100]}...")
+            
+            # Clean output
+            optimized_keyword = content.split('\n')[0].strip()
+            optimized_keyword = re.sub(r'^English search query[：:]\s*', '', optimized_keyword, flags=re.IGNORECASE)
+            optimized_keyword = re.sub(r'^["\']|["\']$', '', optimized_keyword)
+            
+            if optimized_keyword and len(optimized_keyword) <= 40:
+                if self.verbose:
+                    print(f"    [DEBUG] Gemini AI优化后的关键词: {optimized_keyword}")
+                return optimized_keyword[:40]
+            else:
+                if self.verbose:
+                    print(f"    [DEBUG] Gemini AI返回的关键词格式不正确: {content}")
+                return None
+                
+        except Exception as e:
+            if self.verbose:
+                print(f"    [DEBUG] Gemini AI优化关键词失败: {str(e)}")
+            return None
     
     def optimize_search_keyword_with_spark(self, japanese_text):
         """
@@ -311,10 +423,16 @@ class PPTImageEnhancer:
             if len(parts) > 1:
                 clean_keyword = parts[-1].strip()
         
-        # 使用Spark AI优化搜索关键词
-        optimized_keyword = None
-        if self.spark_api_key:
-            optimized_keyword = self.optimize_search_keyword_with_spark(clean_keyword)
+            # 优先使用Gemini AI优化搜索关键词，失败则使用Spark AI
+            optimized_keyword = None
+            if self.google_ai_api_key:
+                optimized_keyword = self.optimize_search_keyword_with_gemini(clean_keyword)
+                if not optimized_keyword and self.spark_api_key:
+                    if self.verbose:
+                        print(f"    [DEBUG] Gemini优化失败，尝试使用Spark AI")
+                    optimized_keyword = self.optimize_search_keyword_with_spark(clean_keyword)
+            elif self.spark_api_key:
+                optimized_keyword = self.optimize_search_keyword_with_spark(clean_keyword)
         
         # 生成搜索关键词变体
         search_keywords = []
@@ -1036,15 +1154,24 @@ class PPTImageEnhancer:
                 # 使用第一行文本作为更精简的关键词，或者用Spark AI优化关键词
                 retry_keyword = texts[0] if texts else search_keyword
                 
-                # 如果配置了Spark AI，尝试用AI优化关键词
-                if self.spark_api_key and retry_count > 0:
+                # 如果配置了AI，尝试用AI优化关键词（优先Gemini，失败用Spark）
+                if (self.google_ai_api_key or self.spark_api_key) and retry_count > 0:
                     if self.verbose:
-                        print(f"    [DEBUG] 使用Spark AI优化关键词（第{retry_count+1}次重试）")
-                    optimized = self.optimize_search_keyword_with_spark(retry_keyword)
+                        print(f"    [DEBUG] 使用AI优化关键词（第{retry_count+1}次重试）")
+                    optimized = None
+                    if self.google_ai_api_key:
+                        optimized = self.optimize_search_keyword_with_gemini(retry_keyword)
+                        if not optimized and self.spark_api_key:
+                            if self.verbose:
+                                print(f"    [DEBUG] Gemini优化失败，尝试Spark AI")
+                            optimized = self.optimize_search_keyword_with_spark(retry_keyword)
+                    elif self.spark_api_key:
+                        optimized = self.optimize_search_keyword_with_spark(retry_keyword)
+                    
                     if optimized:
                         retry_keyword = optimized
                         if self.verbose:
-                            print(f"    [DEBUG] Spark AI优化后的关键词: {optimized}")
+                            print(f"    [DEBUG] AI优化后的关键词: {optimized}")
                 
                 # 重新搜索（search_images内部仍然优先用Google API和Google爬虫）
                 retry_urls = self.search_images(retry_keyword, count=2)
