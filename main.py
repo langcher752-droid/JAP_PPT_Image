@@ -154,11 +154,9 @@ class PPTImageEnhancer:
             
             if response.status_code == 200:
                 # 从HTML中提取图片URL
-                # Google图片搜索结果中的图片URL在特定的JSON结构中
                 html = response.text
                 
-                # 查找图片URL模式
-                # Google使用特定的模式存储图片数据
+                # 模式1：旧版Google图片结果中的"ou"原始图片URL
                 pattern = r'"ou":"([^"]+)"'  # 原始图片URL
                 matches = re.findall(pattern, html)
                 
@@ -171,13 +169,38 @@ class PPTImageEnhancer:
                 else:
                     if self.verbose:
                         print(f"    [DEBUG] 未找到图片URL模式，尝试备用模式")
-                    # 备用模式
+                    
+                    # 模式2：通用的 jpg/png/webp 链接
                     pattern2 = r'"(https://[^"]+\.(jpg|jpeg|png|webp)[^"]*)"'
                     matches2 = re.findall(pattern2, html, re.IGNORECASE)
                     for i, (url, ext) in enumerate(matches2[:count]):
                         image_urls.append(url)
                         if self.verbose:
                             print(f"    [DEBUG] 提取到图片 {i+1} (备用): {url[:60]}...")
+                    
+                    # 模式3：新版Google图片中的缩略图地址（encrypted-tbn0.gstatic.com）
+                    if len(image_urls) < count:
+                        pattern3 = r'https://encrypted-tbn0\.gstatic\.com/images[^"]+'
+                        matches3 = re.findall(pattern3, html)
+                        for i, url in enumerate(matches3[: (count - len(image_urls))]):
+                            image_urls.append(url)
+                            if self.verbose:
+                                print(f"    [DEBUG] 提取到图片 {len(image_urls)} (缩略图): {url[:60]}...")
+                    
+                    # 模式4：兜底，从<img>标签中提取src
+                    if len(image_urls) < count:
+                        if self.verbose:
+                            print(f"    [DEBUG] 前两种模式结果不足({len(image_urls)}/{count})，尝试从<img>标签中提取")
+                        img_pattern = r'<img[^>]+src="(https://[^"]+)"'
+                        img_matches = re.findall(img_pattern, html, re.IGNORECASE)
+                        for url in img_matches:
+                            # 简单过滤一下明显不是图片的资源
+                            if any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png']) or 'gstatic.com' in url:
+                                image_urls.append(url)
+                                if self.verbose:
+                                    print(f"    [DEBUG] 提取到图片 (img标签): {url[:60]}...")
+                                if len(image_urls) >= count:
+                                    break
             else:
                 if self.verbose:
                     print(f"    [DEBUG] Google搜索失败: {response.status_code}")

@@ -6,7 +6,7 @@
 import os
 import uuid
 import shutil
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, after_this_request
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import tempfile
@@ -44,16 +44,29 @@ def allowed_file(filename):
 
 
 class ProgressLogger:
-    """用于捕获处理进度的日志类"""
-    def __init__(self):
+    """用于捕获处理进度的日志类，同时转发到原始stdout，方便在服务器日志中查看完整输出"""
+    def __init__(self, original_stdout=None):
         self.logs = []
+        self.original_stdout = original_stdout
     
     def write(self, message):
+        # 记录到内存日志
         if message.strip():
             self.logs.append(message.strip())
+        # 同时转发到原stdout，这样 journalctl 里也能看到完整日志
+        if self.original_stdout is not None:
+            try:
+                self.original_stdout.write(message)
+            except Exception:
+                # 避免因为日志转发失败影响主流程
+                pass
     
     def flush(self):
-        pass
+        if self.original_stdout is not None:
+            try:
+                self.original_stdout.flush()
+            except Exception:
+                pass
     
     def get_logs(self):
         return self.logs
@@ -123,11 +136,11 @@ def process_ppt():
         output_path = os.path.join(OUTPUT_FOLDER, f"{task_id}_{output_filename}")
         
         # 创建进度日志捕获器
-        progress_logger = ProgressLogger()
-        
-        # 导入sys来重定向stdout
         import sys
         original_stdout = sys.stdout
+        progress_logger = ProgressLogger(original_stdout=original_stdout)
+        
+        # 重定向stdout到进度捕获器
         sys.stdout = progress_logger
         
         try:
@@ -206,6 +219,17 @@ def download_ppt(task_id):
     
     # 提取原始文件名（去掉task_id前缀）
     original_filename = output_filename[len(task_id) + 1:]
+    
+    @after_this_request
+    def remove_file(response):
+        """在响应发送完成后立刻删除输出文件，避免占用磁盘"""
+        try:
+            if os.path.exists(output_path):
+                os.remove(output_path)
+        except Exception:
+            # 删除失败不影响用户下载
+            pass
+        return response
     
     return send_file(
         output_path,
