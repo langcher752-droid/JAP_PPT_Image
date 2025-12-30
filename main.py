@@ -171,15 +171,15 @@ class PPTImageEnhancer:
                         img_url = match.replace('\\u003d', '=').replace('\\/', '/')
                         # 跳过缩略图，优先使用原图
                         if 'encrypted-tbn0.gstatic.com' not in img_url or '=s' not in img_url:
-                        image_urls.append(img_url)
-                        if self.verbose:
+                            image_urls.append(img_url)
+                            if self.verbose:
                                 print(f"    [DEBUG] 提取到原图 {len(image_urls)}: {img_url[:60]}...")
                         elif len(image_urls) < count:
                             # 如果是缩略图，尝试提取原图URL（去掉尺寸参数）
                             original_url = img_url.split('=s')[0] if '=s' in img_url else img_url
                             if original_url not in image_urls:
                                 image_urls.append(original_url)
-                    if self.verbose:
+                                if self.verbose:
                                     print(f"    [DEBUG] 提取到原图（从缩略图转换） {len(image_urls)}: {original_url[:60]}...")
                 
                 # 如果原图不够，尝试其他模式
