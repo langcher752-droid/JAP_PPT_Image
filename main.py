@@ -704,6 +704,18 @@ class PPTImageEnhancer:
         Returns:
             转换后的图片路径（如果不需要转换则返回原路径）
         """
+        # 首先检查文件是否存在
+        if not os.path.exists(image_path):
+            if self.verbose:
+                print(f"    [DEBUG] 图片文件不存在: {image_path}")
+            return image_path
+        
+        # 检查是否是文件路径（不是BytesIO或其他对象）
+        if not isinstance(image_path, str):
+            if self.verbose:
+                print(f"    [DEBUG] 图片路径不是字符串类型: {type(image_path)}")
+            return image_path
+        
         if not PIL_AVAILABLE:
             # 如果没有PIL，无法安全转换WEBP等格式，直接返回原路径
             # 后续在 add_picture_safe 中会捕获不支持的格式错误，避免程序崩溃
@@ -728,8 +740,9 @@ class PPTImageEnhancer:
                 except Exception as e:
                     if self.verbose:
                         print(f"    [DEBUG] 文件扩展名是图片格式，但文件内容无效: {e}")
-                    # 返回原路径，让add_picture_safe处理错误
-                    return image_path
+                        print(f"    [DEBUG] 错误类型: {type(e).__name__}")
+                    # 如果验证失败，返回None而不是原路径，避免后续处理失败
+                    return None
                 return image_path
             
             # 需要转换格式
@@ -737,6 +750,13 @@ class PPTImageEnhancer:
                 print(f"    [DEBUG] 转换图片格式: {ext} -> PNG")
             
             # 打开图片（这里会验证文件是否是有效的图片）
+            # 确保 image_path 是字符串路径，不是 BytesIO 对象
+            if not isinstance(image_path, str):
+                raise ValueError(f"图片路径必须是字符串，但得到: {type(image_path)}")
+            
+            if not os.path.exists(image_path):
+                raise FileNotFoundError(f"图片文件不存在: {image_path}")
+            
             img = Image.open(image_path)
             
             # 如果是RGBA模式，转换为RGB（PNG支持透明度，但为了兼容性转为RGB）
@@ -762,12 +782,23 @@ class PPTImageEnhancer:
         except Exception as e:
             if self.verbose:
                 print(f"    [DEBUG] 图片格式转换失败: {e}")
+                print(f"    [DEBUG] 错误类型: {type(e).__name__}")
+                print(f"    [DEBUG] 图片路径类型: {type(image_path).__name__}")
+                if isinstance(image_path, str):
+                    print(f"    [DEBUG] 图片路径: {image_path}")
+                    print(f"    [DEBUG] 文件是否存在: {os.path.exists(image_path) if image_path else False}")
             # 转换失败，返回原路径（可能会失败，但至少尝试一下）
-            return image_path
+            # 但如果原路径也不是字符串，返回None让上层处理
+            if isinstance(image_path, str):
+                return image_path
+            else:
+                if self.verbose:
+                    print(f"    [DEBUG] 图片路径不是字符串，无法返回: {type(image_path)}")
+                return None
     
     def add_picture_safe(self, slide, image_path, x, y, max_width, max_height):
         """
-        安全地添加图片到幻灯片，并在给定“框”中自适应缩放，保证不拉伸变形
+        安全地添加图片到幻灯片，并在给定"框"中自适应缩放，保证不拉伸变形
         
         Args:
             slide: 幻灯片对象
@@ -778,26 +809,55 @@ class PPTImageEnhancer:
         Returns:
             添加的图片形状对象（或None，如果格式不支持）
         """
+        # 首先验证输入
+        if not isinstance(image_path, str):
+            if self.verbose:
+                print(f"    [DEBUG] 图片路径不是字符串类型: {type(image_path)}")
+            return None
+        
+        if not os.path.exists(image_path):
+            if self.verbose:
+                print(f"    [DEBUG] 图片文件不存在: {image_path}")
+            return None
+        
         # 转换图片格式
         converted_path = self.convert_image_format(image_path)
+        
+        # 再次验证转换后的路径
+        if converted_path is None:
+            if self.verbose:
+                print(f"    [DEBUG] 图片格式转换返回None，已跳过: {image_path}")
+            return None
+        
+        if not isinstance(converted_path, str):
+            if self.verbose:
+                print(f"    [DEBUG] 转换后的图片路径不是字符串类型: {type(converted_path)}")
+            return None
+        
+        if not os.path.exists(converted_path):
+            if self.verbose:
+                print(f"    [DEBUG] 转换后的图片文件不存在: {converted_path}")
+            return None
         
         # 先以原始大小插入，再根据max_width/max_height做等比缩放和居中
         try:
             pic = slide.shapes.add_picture(converted_path, x, y)
-        except (ValueError, IOError, OSError) as e:
+        except (ValueError, IOError, OSError, FileNotFoundError) as e:
             msg = str(e)
             if "WEBP" in msg.upper():
                 if self.verbose:
                     print(f"    [DEBUG] PowerPoint不支持WEBP图片，已跳过该图片: {converted_path}")
                     print("           如需使用WEBP图片，请安装 Pillow库 并重新运行：pip install Pillow")
                 return None
-            elif "cannot identify image file" in msg.lower() or "not a valid" in msg.lower():
+            elif "cannot identify image file" in msg.lower() or "not a valid" in msg.lower() or "bytesio" in msg.lower():
                 if self.verbose:
                     print(f"    [DEBUG] 无法识别图片文件（可能是无效的图片或HTML页面），已跳过: {converted_path}")
+                    print(f"    [DEBUG] 错误详情: {msg}")
                 return None
             # 其他错误继续抛出，便于排查
             if self.verbose:
                 print(f"    [DEBUG] 添加图片时发生错误: {msg}")
+                print(f"    [DEBUG] 错误类型: {type(e).__name__}")
             raise
         
         # 当前尺寸
