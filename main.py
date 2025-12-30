@@ -312,7 +312,7 @@ class PPTImageEnhancer:
                 if len(image_urls) >= count:
                     break
         
-        # 方案2: 如果API失败，尝试爬取Google图片搜索结果
+        # 方案2: 如果API结果不足，尝试爬取Google图片搜索结果
         if len(image_urls) < count:
             if self.verbose:
                 print(f"    [DEBUG] API结果不足({len(image_urls)}/{count})，尝试爬取Google搜索结果")
@@ -322,7 +322,8 @@ class PPTImageEnhancer:
                 if len(image_urls) >= count:
                     break
         
-            if self.verbose:
+        # 不再使用随机Picsum图片，只使用Google API + Google爬虫的结果
+        if self.verbose:
             print(f"    [DEBUG] 总共找到 {len(image_urls)} 张图片（不使用随机备用图）")
         
         return image_urls[:count]
