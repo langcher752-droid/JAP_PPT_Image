@@ -448,30 +448,68 @@
             document.getElementById('processBtn').disabled = false;
         }
 
+        // 清理和验证URL
+        function cleanAndValidateUrl(url) {
+            if (!url) return null;
+            
+            // 移除所有空白字符和特殊字符（保留URL有效字符）
+            url = url.trim();
+            
+            // 移除末尾的无效字符（如 #J 等）
+            url = url.replace(/[#\s]+.*$/, '');
+            
+            // 如果没有协议，添加 https://
+            if (!url.match(/^https?:\/\//i)) {
+                url = 'https://' + url;
+            }
+            
+            // 移除末尾的斜杠（如果有）
+            url = url.replace(/\/+$/, '');
+            
+            return url;
+        }
+
         // 检查服务器状态
         async function checkServer() {
             const urlInput = document.getElementById('apiUrl');
-            const url = urlInput.value.trim();
+            let url = urlInput.value.trim();
             
             // 如果没有输入，使用input框的默认值
-            const finalUrl = url || urlInput.getAttribute('value') || 'https://www.rancho.website';
+            if (!url) {
+                url = urlInput.getAttribute('value') || 'https://www.rancho.website';
+            }
+            
+            // 清理和验证URL
+            const finalUrl = cleanAndValidateUrl(url);
             
             if (!finalUrl) {
-                updateStatus(false, '请输入API服务器地址');
+                updateStatus(false, '请输入有效的API服务器地址');
                 return;
             }
-
-            // 更新input框的值（如果之前是空的）
-            if (!url && finalUrl) {
-                urlInput.value = finalUrl;
-            }
+            
+            // 更新input框的值
+            urlInput.value = finalUrl;
             
             apiUrl = finalUrl;
             localStorage.setItem('apiUrl', finalUrl);
 
             try {
                 const response = await fetch(`${apiUrl}/api/health`);
-                const data = await response.json();
+                
+                // 检查响应类型
+                const contentType = response.headers.get('content-type') || '';
+                let data;
+                
+                if (contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
+                    // 如果不是JSON，尝试解析为文本
+                    const text = await response.text();
+                    console.error('服务器返回非JSON响应:', text.substring(0, 200));
+                    updateStatus(false, `服务器错误 (${response.status}): 返回了HTML而不是JSON`);
+                    alert(`无法连接到服务器：服务器返回了HTML页面而不是JSON响应。\n\n请检查：\n1. URL是否正确：${apiUrl}\n2. 服务器是否正常运行\n3. 是否使用了HTTPS`);
+                    return;
+                }
                 
                 if (data.status === 'ok') {
                     // 构建详细的状态信息
@@ -490,7 +528,14 @@
                 }
             } catch (error) {
                 updateStatus(false, '无法连接到服务器');
-                alert('无法连接到服务器: ' + error.message);
+                let errorMsg = error.message;
+                
+                // 如果是JSON解析错误，提供更友好的提示
+                if (error.message.includes('JSON') || error.message.includes('Unexpected token')) {
+                    errorMsg = `服务器返回了非JSON响应（可能是HTML错误页面）。\n\n请检查：\n1. URL是否正确：${apiUrl}\n2. 服务器是否正常运行\n3. 是否使用了HTTPS协议`;
+                }
+                
+                alert('无法连接到服务器: ' + errorMsg);
             }
         }
 
@@ -507,22 +552,25 @@
         async function processFile() {
             // 确保apiUrl已设置（使用input框的值或默认值）
             const urlInput = document.getElementById('apiUrl');
-            const url = urlInput.value.trim();
-            if (url) {
-                apiUrl = url;
-                localStorage.setItem('apiUrl', url);
-            } else {
+            let url = urlInput.value.trim();
+            
+            if (!url) {
                 // 如果没有输入，使用input框的默认值
-                const defaultValue = urlInput.getAttribute('value') || 'https://www.rancho.website';
-                if (defaultValue) {
-                    apiUrl = defaultValue;
-                    urlInput.value = defaultValue;
-                    localStorage.setItem('apiUrl', defaultValue);
-                } else {
-                    alert('请先输入API服务器地址');
-                    return;
-                }
+                url = urlInput.getAttribute('value') || 'https://www.rancho.website';
             }
+            
+            // 清理和验证URL
+            const cleanedUrl = cleanAndValidateUrl(url);
+            
+            if (!cleanedUrl) {
+                alert('请输入有效的API服务器地址');
+                return;
+            }
+            
+            // 更新input框和变量
+            urlInput.value = cleanedUrl;
+            apiUrl = cleanedUrl;
+            localStorage.setItem('apiUrl', cleanedUrl);
             
             const fileInput = document.getElementById('fileInput');
             const file = fileInput.files[0];
