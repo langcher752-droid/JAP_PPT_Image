@@ -424,16 +424,16 @@ class PPTImageEnhancer:
             if len(parts) > 1:
                 clean_keyword = parts[-1].strip()
         
-            # 优先使用Gemini AI优化搜索关键词，失败则使用Spark AI
-            optimized_keyword = None
-            if self.google_ai_api_key:
-                optimized_keyword = self.optimize_search_keyword_with_gemini(clean_keyword)
-                if not optimized_keyword and self.spark_api_key:
-                    if self.verbose:
-                        print(f"    [DEBUG] Gemini优化失败，尝试使用Spark AI")
-                    optimized_keyword = self.optimize_search_keyword_with_spark(clean_keyword)
-            elif self.spark_api_key:
+        # 优先使用Gemini AI优化搜索关键词，失败则使用Spark AI
+        optimized_keyword = None
+        if self.google_ai_api_key:
+            optimized_keyword = self.optimize_search_keyword_with_gemini(clean_keyword)
+            if not optimized_keyword and self.spark_api_key:
+                if self.verbose:
+                    print(f"    [DEBUG] Gemini优化失败，尝试使用Spark AI")
                 optimized_keyword = self.optimize_search_keyword_with_spark(clean_keyword)
+        elif self.spark_api_key:
+            optimized_keyword = self.optimize_search_keyword_with_spark(clean_keyword)
         
         # 生成搜索关键词变体
         search_keywords = []

@@ -44,6 +44,10 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+# 全局任务状态存储（用于进度查询）
+task_status = {}
+
+
 class ProgressLogger:
     """用于捕获处理进度的日志类，同时转发到原始stdout，方便在服务器日志中查看完整输出"""
     def __init__(self, original_stdout=None):
@@ -71,6 +75,16 @@ class ProgressLogger:
     
     def get_logs(self):
         return self.logs
+
+
+@app.route('/api/progress/<task_id>', methods=['GET'])
+def get_progress(task_id):
+    """获取任务处理进度"""
+    if task_id not in task_status:
+        return jsonify({'error': '任务不存在'}), 404
+    
+    status = task_status[task_id]
+    return jsonify(status)
 
 
 @app.route('/api/health', methods=['GET'])
@@ -142,7 +156,16 @@ def process_ppt():
         # 创建进度日志捕获器
         import sys
         original_stdout = sys.stdout
-        progress_logger = ProgressLogger(original_stdout=original_stdout)
+        progress_logger = ProgressLogger(original_stdout=original_stdout, task_id=task_id)
+        
+        # 初始化任务状态
+        task_status[task_id] = {
+            'status': 'processing',
+            'progress': 0,
+            'current_page': 0,
+            'total_pages': 0,
+            'logs': []
+        }
         
         # 重定向stdout到进度捕获器
         sys.stdout = progress_logger
@@ -167,6 +190,16 @@ def process_ppt():
             if not os.path.exists(output_path):
                 raise Exception("处理完成但输出文件不存在")
             
+            # 更新任务状态为完成
+            task_status[task_id] = {
+                'status': 'success',
+                'progress': 100,
+                'current_page': progress_logger.total_pages,
+                'total_pages': progress_logger.total_pages,
+                'logs': progress_logger.get_logs(),
+                'output_filename': output_filename
+            }
+            
             # 返回成功响应（返回全部日志，不再截断）
             return jsonify({
                 'status': 'success',
@@ -190,6 +223,14 @@ def process_ppt():
     except Exception as e:
         error_msg = str(e)
         error_trace = traceback.format_exc()
+        
+        # 更新任务状态为失败
+        if 'task_id' in locals():
+            task_status[task_id] = {
+                'status': 'error',
+                'error': error_msg,
+                'logs': progress_logger.get_logs() if 'progress_logger' in locals() else []
+            }
         
         # 清理文件
         if upload_path and os.path.exists(upload_path):
