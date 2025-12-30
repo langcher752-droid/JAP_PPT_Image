@@ -196,8 +196,8 @@ class PPTImageEnhancer:
                         # 跳过缩略图
                         if 'encrypted-tbn0.gstatic.com' not in url or '=s' not in url:
                             if url not in image_urls:
-                        image_urls.append(url)
-                        if self.verbose:
+                                image_urls.append(url)
+                                if self.verbose:
                                     print(f"    [DEBUG] 提取到图片 {len(image_urls)} (备用): {url[:60]}...")
                     
                     # 模式3：从缩略图URL中提取原图（最后手段）
@@ -469,7 +469,7 @@ class PPTImageEnhancer:
                     break
         
         # 不再使用随机Picsum图片，只使用Google API + Google爬虫的结果
-            if self.verbose:
+        if self.verbose:
             print(f"    [DEBUG] 总共找到 {len(image_urls)} 张图片（不使用随机备用图）")
         
         return image_urls[:count]
