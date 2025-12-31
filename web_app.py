@@ -28,7 +28,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 # 加载配置（从环境变量或config.json）
-google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model = load_config()
+google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model, ollama_base_url, ollama_model, bing_api_key = load_config()
 
 # 如果环境变量中有配置，优先使用环境变量
 google_api_key = os.getenv('GOOGLE_API_KEY', google_api_key)
@@ -37,6 +37,9 @@ google_ai_api_key = os.getenv('GOOGLE_AI_API_KEY', google_ai_api_key)
 spark_api_key = os.getenv('SPARK_API_KEY', spark_api_key)
 spark_base_url = os.getenv('SPARK_BASE_URL', spark_base_url)
 spark_model = os.getenv('SPARK_MODEL', spark_model)
+ollama_base_url = os.getenv('OLLAMA_BASE_URL', ollama_base_url)
+ollama_model = os.getenv('OLLAMA_MODEL', ollama_model)
+bing_api_key = os.getenv('BING_API_KEY', bing_api_key)
 
 
 def allowed_file(filename):
@@ -145,10 +148,14 @@ def health_check():
         'supports_google_custom_search': True,
         'supports_google_ai': True,
         'supports_spark_ai': True,
+        'supports_ollama': True,
+        'supports_bing_search': True,
         # 仅表示后端代码支持这些类型，不代表已经配置好密钥
         'server_google_api_configured': bool(google_api_key and google_cse_id),
         'server_google_ai_configured': bool(google_ai_api_key),
-        'server_spark_api_configured': bool(spark_api_key)
+        'server_spark_api_configured': bool(spark_api_key),
+        'server_ollama_configured': bool(ollama_base_url),
+        'server_bing_api_configured': bool(bing_api_key)
     })
 
 
@@ -181,6 +188,9 @@ def process_ppt():
     req_spark_api_key = request.form.get('spark_api_key') or spark_api_key
     req_spark_base_url = request.form.get('spark_base_url') or spark_base_url
     req_spark_model = request.form.get('spark_model') or spark_model
+    req_ollama_base_url = request.form.get('ollama_base_url') or ollama_base_url
+    req_ollama_model = request.form.get('ollama_model') or ollama_model
+    req_bing_api_key = request.form.get('bing_api_key') or bing_api_key
     
     # 生成唯一ID
     task_id = str(uuid.uuid4())
@@ -226,6 +236,9 @@ def process_ppt():
                 spark_api_key=req_spark_api_key,
                 spark_base_url=req_spark_base_url,
                 spark_model=req_spark_model,
+                ollama_base_url=req_ollama_base_url,
+                ollama_model=req_ollama_model,
+                bing_api_key=req_bing_api_key,
                 verbose=True
             )
             

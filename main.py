@@ -22,7 +22,8 @@ except ImportError:
 
 class PPTImageEnhancer:
     def __init__(self, ppt_path, output_path=None, google_api_key=None, google_cse_id=None, 
-                 google_ai_api_key=None, spark_api_key=None, spark_base_url=None, spark_model=None, verbose=True):
+                 google_ai_api_key=None, spark_api_key=None, spark_base_url=None, spark_model=None,
+                 ollama_base_url=None, ollama_model=None, bing_api_key=None, verbose=True):
         """
         初始化PPT图片增强器
         
@@ -35,6 +36,9 @@ class PPTImageEnhancer:
             spark_api_key: Spark AI API Key（可选，Gemini失败时使用）
             spark_base_url: Spark AI Base URL（可选）
             spark_model: Spark AI Model（可选）
+            ollama_base_url: Ollama本地模型Base URL（可选，默认http://localhost:11434）
+            ollama_model: Ollama模型名称（可选，默认llama3.2）
+            bing_api_key: Bing Image Search API Key（可选）
             verbose: 是否显示详细日志
         """
         self.ppt_path = ppt_path
@@ -52,6 +56,9 @@ class PPTImageEnhancer:
         self.spark_api_key = spark_api_key
         self.spark_base_url = spark_base_url or "https://spark-api-open.xf-yun.com/v2"
         self.spark_model = spark_model or "spark-x"
+        self.ollama_base_url = ollama_base_url or "http://localhost:11434"
+        self.ollama_model = ollama_model or "llama3.2"
+        self.bing_api_key = bing_api_key
         self.verbose = verbose
         self.last_template_id = -1  # 记录上一页使用的模板ID，确保相邻页面不同
         
@@ -59,12 +66,16 @@ class PPTImageEnhancer:
             if self.google_api_key and self.google_cse_id:
                 print(f"[INFO] Google Custom Search API已配置")
             else:
-                print(f"[INFO] Google API未配置，将使用备用方案")
+                print(f"[INFO] Google API未配置")
+            if self.bing_api_key:
+                print(f"[INFO] Bing Image Search API已配置")
             if self.google_ai_api_key:
                 print(f"[INFO] Google AI (Gemini) API已配置，将优先用于优化搜索关键词")
+            if self.ollama_base_url:
+                print(f"[INFO] Ollama本地模型已配置: {self.ollama_base_url} (模型: {self.ollama_model})")
             if self.spark_api_key:
                 print(f"[INFO] Spark AI API已配置，Gemini失败时将使用Spark")
-            if not self.google_ai_api_key and not self.spark_api_key:
+            if not self.google_ai_api_key and not self.spark_api_key and not self.ollama_base_url:
                 print(f"[INFO] AI API未配置，将直接使用原始关键词搜索")
         
     def search_images_google_api(self, keyword, count=2):
@@ -404,6 +415,143 @@ class PPTImageEnhancer:
                 print(f"    [DEBUG] Spark AI优化关键词失败: {str(e)}")
             return None
     
+    def optimize_search_keyword_with_ollama(self, japanese_text):
+        """
+        Use Ollama local model to optimize an image search keyword.
+        
+        Args:
+            japanese_text: Japanese text from the slide.
+            
+        Returns:
+            Optimized search keyword (short English phrase), or None if optimization fails.
+        """
+        if not self.ollama_base_url:
+            return None
+        
+        try:
+            prompt = (
+                "You are helping to search images on Google Images.\n"
+                "Given the following Japanese word or short phrase:\n"
+                f"{japanese_text}\n\n"
+                "Task:\n"
+                "1. Generate ONE short English search query that will find images closely related\n"
+                "   to the meaning of this Japanese word.\n"
+                "2. The query should be at most 4–5 English words (very short).\n"
+                "3. Output ONLY the English query text, without any explanation, quotes or extra words.\n"
+                "4. If the Japanese word is a concrete thing (object, animal, food, place, action),\n"
+                "   translate or describe it directly. If it is abstract, choose a concrete visual\n"
+                "   concept that represents it (for example, a scene or object people can see).\n\n"
+                "English search query:"
+            )
+            
+            base_url = self.ollama_base_url.rstrip("/")
+            endpoint = f"{base_url}/api/generate"
+            
+            payload = {
+                "model": self.ollama_model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.7,
+                    "num_predict": 50
+                }
+            }
+            
+            if self.verbose:
+                print(f"    [DEBUG] 调用Ollama本地模型优化关键词: {japanese_text}")
+                print(f"    [DEBUG] Ollama API请求URL: {endpoint}")
+            
+            response = requests.post(endpoint, json=payload, timeout=30)
+            response.raise_for_status()
+            
+            result = response.json()
+            content = result.get("response", "").strip()
+            
+            if self.verbose:
+                print(f"    [DEBUG] Ollama原始响应: {content[:100]}...")
+            
+            # Clean output: keep only the first line, strip quotes and extra labels
+            optimized_keyword = content.split('\n')[0].strip()
+            optimized_keyword = re.sub(r'^English search query[：:]\s*', '', optimized_keyword, flags=re.IGNORECASE)
+            optimized_keyword = re.sub(r'^["\']|["\']$', '', optimized_keyword)
+            
+            # Limit length to avoid overly long prompts
+            if optimized_keyword and len(optimized_keyword) <= 40:
+                if self.verbose:
+                    print(f"    [DEBUG] Ollama优化后的关键词: {optimized_keyword}")
+                return optimized_keyword[:40]
+            else:
+                if self.verbose:
+                    print(f"    [DEBUG] Ollama返回的关键词格式不正确: {content}")
+                return None
+                
+        except Exception as e:
+            if self.verbose:
+                print(f"    [DEBUG] Ollama优化关键词失败: {str(e)}")
+            return None
+    
+    def search_images_bing_api(self, keyword, count=2):
+        """
+        使用Bing Image Search API搜索图片
+        
+        Args:
+            keyword: 搜索关键词
+            count: 需要的图片数量
+            
+        Returns:
+            图片URL列表
+        """
+        if not self.bing_api_key:
+            return []
+        
+        image_urls = []
+        try:
+            if self.verbose:
+                print(f"    [DEBUG] 使用Bing Image Search API搜索: {keyword}")
+            
+            # Bing Image Search API v7
+            url = "https://api.bing.microsoft.com/v7.0/images/search"
+            headers = {
+                'Ocp-Apim-Subscription-Key': self.bing_api_key
+            }
+            params = {
+                'q': keyword,
+                'count': min(count, 35),  # Bing API最多返回35个结果
+                'imageType': 'Photo',
+                'size': 'Large',
+                'aspect': 'All',
+                'color': 'ColorOnly',
+                'freshness': 'Month',
+                'safeSearch': 'Strict'
+            }
+            
+            response = requests.get(url, headers=headers, params=params, timeout=15)
+            
+            if self.verbose:
+                print(f"    [DEBUG] Bing API响应状态: {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                if 'value' in data:
+                    for item in data['value'][:count]:
+                        img_url = item.get('contentUrl', '')
+                        if img_url:
+                            image_urls.append(img_url)
+                            if self.verbose:
+                                print(f"    [DEBUG] 找到图片: {img_url[:60]}...")
+                else:
+                    if self.verbose:
+                        print(f"    [DEBUG] Bing API未返回结果")
+            else:
+                if self.verbose:
+                    print(f"    [DEBUG] Bing API错误: {response.status_code} - {response.text[:100]}")
+                    
+        except Exception as e:
+            if self.verbose:
+                print(f"    [DEBUG] Bing API异常: {str(e)}")
+        
+        return image_urls
+    
     def search_images(self, keyword, count=2):
         """
         搜索与关键词相关的图片（优先使用Google图片搜索）
@@ -424,13 +572,23 @@ class PPTImageEnhancer:
             if len(parts) > 1:
                 clean_keyword = parts[-1].strip()
         
-        # 优先使用Gemini AI优化搜索关键词，失败则使用Spark AI
+        # 优先使用Gemini AI优化搜索关键词，失败则尝试Ollama，最后尝试Spark AI
         optimized_keyword = None
         if self.google_ai_api_key:
             optimized_keyword = self.optimize_search_keyword_with_gemini(clean_keyword)
+            if not optimized_keyword and self.ollama_base_url:
+                if self.verbose:
+                    print(f"    [DEBUG] Gemini优化失败，尝试使用Ollama本地模型")
+                optimized_keyword = self.optimize_search_keyword_with_ollama(clean_keyword)
             if not optimized_keyword and self.spark_api_key:
                 if self.verbose:
-                    print(f"    [DEBUG] Gemini优化失败，尝试使用Spark AI")
+                    print(f"    [DEBUG] Gemini和Ollama优化失败，尝试使用Spark AI")
+                optimized_keyword = self.optimize_search_keyword_with_spark(clean_keyword)
+        elif self.ollama_base_url:
+            optimized_keyword = self.optimize_search_keyword_with_ollama(clean_keyword)
+            if not optimized_keyword and self.spark_api_key:
+                if self.verbose:
+                    print(f"    [DEBUG] Ollama优化失败，尝试使用Spark AI")
                 optimized_keyword = self.optimize_search_keyword_with_spark(clean_keyword)
         elif self.spark_api_key:
             optimized_keyword = self.optimize_search_keyword_with_spark(clean_keyword)
@@ -458,7 +616,17 @@ class PPTImageEnhancer:
                 if len(image_urls) >= count:
                     break
         
-        # 方案2: 如果API结果不足，尝试爬取Google图片搜索结果
+        # 方案2: 如果Google API结果不足，尝试使用Bing Image Search API
+        if len(image_urls) < count and self.bing_api_key:
+            if self.verbose:
+                print(f"    [DEBUG] Google API结果不足({len(image_urls)}/{count})，尝试使用Bing API")
+            for search_term in search_keywords:
+                bing_urls = self.search_images_bing_api(search_term, count - len(image_urls))
+                image_urls.extend(bing_urls)
+                if len(image_urls) >= count:
+                    break
+        
+        # 方案3: 如果API结果不足，尝试爬取Google图片搜索结果
         if len(image_urls) < count:
             if self.verbose:
                 print(f"    [DEBUG] API结果不足({len(image_urls)}/{count})，尝试爬取Google搜索结果")
@@ -468,7 +636,7 @@ class PPTImageEnhancer:
                 if len(image_urls) >= count:
                     break
         
-        # 不再使用随机Picsum图片，只使用Google API + Google爬虫的结果
+        # 不再使用随机Picsum图片，只使用实际搜索结果
         if self.verbose:
             print(f"    [DEBUG] 总共找到 {len(image_urls)} 张图片（不使用随机备用图）")
         
@@ -790,7 +958,7 @@ class PPTImageEnhancer:
             # 转换失败，返回原路径（可能会失败，但至少尝试一下）
             # 但如果原路径也不是字符串，返回None让上层处理
             if isinstance(image_path, str):
-                return image_path
+            return image_path
             else:
                 if self.verbose:
                     print(f"    [DEBUG] 图片路径不是字符串，无法返回: {type(image_path)}")
@@ -1222,17 +1390,28 @@ class PPTImageEnhancer:
                 # 使用第一行文本作为更精简的关键词，或者用Spark AI优化关键词
                 retry_keyword = texts[0] if texts else search_keyword
                 
-                # 如果配置了AI，尝试用AI优化关键词（优先Gemini，失败用Spark）
+                # 如果配置了AI，尝试用AI优化关键词（优先Gemini，失败用Ollama，最后用Spark）
                 # 只在第一次重试时尝试AI优化，避免API配额问题导致超时
-                if (self.google_ai_api_key or self.spark_api_key) and retry_count == 1:
+                # 如果API都失败（429或500），跳过AI优化，直接使用原始关键词
+                if (self.google_ai_api_key or self.ollama_base_url or self.spark_api_key) and retry_count == 1:
                     if self.verbose:
                         print(f"    [DEBUG] 使用AI优化关键词（第{retry_count+1}次重试）")
                     optimized = None
                     if self.google_ai_api_key:
                         optimized = self.optimize_search_keyword_with_gemini(retry_keyword)
+                        if not optimized and self.ollama_base_url:
+                            if self.verbose:
+                                print(f"    [DEBUG] Gemini优化失败，尝试Ollama本地模型")
+                            optimized = self.optimize_search_keyword_with_ollama(retry_keyword)
                         if not optimized and self.spark_api_key:
                             if self.verbose:
-                                print(f"    [DEBUG] Gemini优化失败，尝试Spark AI")
+                                print(f"    [DEBUG] Gemini和Ollama优化失败，尝试Spark AI")
+                            optimized = self.optimize_search_keyword_with_spark(retry_keyword)
+                    elif self.ollama_base_url:
+                        optimized = self.optimize_search_keyword_with_ollama(retry_keyword)
+                        if not optimized and self.spark_api_key:
+                            if self.verbose:
+                                print(f"    [DEBUG] Ollama优化失败，尝试Spark AI")
                             optimized = self.optimize_search_keyword_with_spark(retry_keyword)
                     elif self.spark_api_key:
                         optimized = self.optimize_search_keyword_with_spark(retry_keyword)
@@ -1280,35 +1459,8 @@ class PPTImageEnhancer:
                 self.add_creative_layout(slide, image_paths, texts)
                 print(f"  ✓ 第 {idx + 1} 页处理完成（模板ID: {self.last_template_id}，图片数: {len(image_paths)})")
             else:
-                print(f"  ✗ 第 {idx + 1} 页经过{max_retries}次搜索仍无法获得图片，使用备用方案")
-                # 最后的备用方案：使用通用关键词强制搜索
-                fallback_keywords = ["japanese language", "japan culture", "learning japanese"]
-                for fb_keyword in fallback_keywords:
-                    if len(image_paths) >= 2:
-                        break
-                    fb_urls = self.search_images(fb_keyword, count=2)
-                    for i, url in enumerate(fb_urls):
-                        if len(image_paths) >= 2:
-                            break
-                        image_path = os.path.join(temp_dir, f"slide_{idx}_fallback_img_{i}.jpg")
-                        if url.lower().endswith('.webp'):
-                            continue
-                        if self.download_image(url, image_path):
-                            image_paths.append(image_path)
-                
-                if image_paths:
-                    while len(image_paths) < 2:
-                        import shutil
-                        single_img = image_paths[0]
-                        dup_path = single_img.replace('.jpg', '_dup.jpg')
-                        shutil.copy2(single_img, dup_path)
-                        image_paths.append(dup_path)
-                    image_paths = image_paths[:2]
-                    print(f"  正在添加图片到幻灯片（使用备用图片）...")
-                    self.add_creative_layout(slide, image_paths, texts)
-                    print(f"  ✓ 第 {idx + 1} 页处理完成（模板ID: {self.last_template_id}，图片数: {len(image_paths)})")
-                else:
-                    print(f"  ✗ 第 {idx + 1} 页所有搜索方案均失败，保留原始文字布局")
+                print(f"  ✗ 第 {idx + 1} 页经过{max_retries}次搜索仍无法获得图片")
+                print(f"  ✗ 第 {idx + 1} 页所有搜索方案均失败，保留原始文字布局（不使用随机图片）")
             
             # 打印整体进度
             self.print_progress(idx + 1, total_slides)
@@ -1336,7 +1488,8 @@ def load_config():
     从配置文件加载API配置
     
     Returns:
-        (google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model) 元组
+        (google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model, 
+         ollama_base_url, ollama_model, bing_api_key) 元组
     """
     config_file = "config.json"
     google_api_key = None
@@ -1345,6 +1498,9 @@ def load_config():
     spark_api_key = None
     spark_base_url = None
     spark_model = None
+    ollama_base_url = None
+    ollama_model = None
+    bing_api_key = None
     
     if os.path.exists(config_file):
         try:
@@ -1356,17 +1512,24 @@ def load_config():
                 spark_api_key = config.get('spark_api_key')
                 spark_base_url = config.get('spark_base_url', 'https://spark-api-open.xf-yun.com/v2')
                 spark_model = config.get('spark_model', 'spark-x')
+                ollama_base_url = config.get('ollama_base_url', 'http://localhost:11434')
+                ollama_model = config.get('ollama_model', 'llama3.2')
+                bing_api_key = config.get('bing_api_key')
                 
                 if google_api_key and google_cse_id:
                     print(f"[INFO] 已从配置文件加载Google Custom Search API设置")
                 if google_ai_api_key:
                     print(f"[INFO] 已从配置文件加载Google AI (Gemini) API设置")
+                if ollama_base_url:
+                    print(f"[INFO] 已从配置文件加载Ollama本地模型设置: {ollama_base_url} (模型: {ollama_model})")
                 if spark_api_key:
                     print(f"[INFO] 已从配置文件加载Spark AI API设置")
+                if bing_api_key:
+                    print(f"[INFO] 已从配置文件加载Bing Image Search API设置")
         except Exception as e:
             print(f"[WARN] 读取配置文件失败: {e}")
     
-    return google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model
+    return google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model, ollama_base_url, ollama_model, bing_api_key
 
 def main():
     """
@@ -1377,22 +1540,33 @@ def main():
     print("=" * 50)
     
     # 加载API配置
-    google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model = load_config()
+    google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model, ollama_base_url, ollama_model, bing_api_key = load_config()
     
     if not google_api_key or not google_cse_id:
-        print("\n[提示] Google图片搜索API未配置")
-        print("当前将使用备用图片源（可能图片与关键词不完全相关）")
-        print("如需使用Google图片搜索，请配置config.json文件")
-        print("详细说明请查看：GoogleAPI配置说明.txt")
-        print()
+        if not bing_api_key:
+            print("\n[提示] Google图片搜索API和Bing API均未配置")
+            print("将尝试使用Google爬虫搜索图片（可能效果不佳）")
+            print("建议配置Bing Image Search API或Google Custom Search API")
+        else:
+            print("\n[提示] Google图片搜索API未配置，将使用Bing API")
+    else:
+        if bing_api_key:
+            print("\n[提示] Google和Bing图片搜索API均已配置")
+        else:
+            print("\n[提示] Google图片搜索API已配置")
     
-    if not google_ai_api_key and not spark_api_key:
+    if not google_ai_api_key and not ollama_base_url and not spark_api_key:
         print("\n[提示] AI API未配置")
         print("将直接使用原始关键词搜索图片")
-        print("如需使用AI优化搜索关键词，请在config.json中添加google_ai_api_key（优先）或spark_api_key")
+        print("如需使用AI优化搜索关键词，请在config.json中添加：")
+        print("  - google_ai_api_key（优先，Gemini）")
+        print("  - ollama_base_url（本地模型，推荐）")
+        print("  - spark_api_key（备用）")
         print()
     elif google_ai_api_key:
         print("\n[提示] Google AI (Gemini) API已配置，将优先用于优化搜索关键词")
+    elif ollama_base_url:
+        print("\n[提示] Ollama本地模型已配置，将用于优化搜索关键词")
     elif spark_api_key:
         print("\n[提示] Spark AI API已配置，将用于优化搜索关键词")
     
@@ -1420,6 +1594,9 @@ def main():
         spark_api_key=spark_api_key,
         spark_base_url=spark_base_url,
         spark_model=spark_model,
+        ollama_base_url=ollama_base_url,
+        ollama_model=ollama_model,
+        bing_api_key=bing_api_key,
         verbose=verbose
     )
     enhancer.process_slides()

@@ -490,7 +490,7 @@
                 updateStatus(false, '请输入有效的API服务器地址');
                 return;
             }
-            
+
             // 更新input框的值
             urlInput.value = finalUrl;
             
@@ -660,7 +660,7 @@
                     console.error('服务器返回非JSON响应:', text.substring(0, 200));
                     throw new Error(`服务器错误 (${response.status}): ${text.substring(0, 100)}`);
                 }
-                
+
                 if (data.status === 'success') {
                     currentTaskId = data.task_id;
                     
@@ -685,7 +685,7 @@
                             if (progressData.progress !== undefined) {
                                 document.getElementById('progressFill').style.width = progressData.progress + '%';
                                 document.getElementById('progressFill').textContent = progressData.progress + '%';
-                                
+                    
                                 // 更新进度文本
                                 if (progressData.current_page && progressData.total_pages) {
                                     document.getElementById('progressText').textContent = 
@@ -695,14 +695,14 @@
                             
                             // 更新日志
                             if (progressData.logs && progressData.logs.length > 0) {
-                                document.getElementById('logContainer').classList.add('show');
+                        document.getElementById('logContainer').classList.add('show');
                                 const logContainer = document.getElementById('logContainer');
                                 const currentLogCount = logContainer.children.length;
                                 
                                 // 只添加新日志
                                 progressData.logs.slice(currentLogCount).forEach(log => {
-                                    addLog(log, 'info');
-                                });
+                            addLog(log, 'info');
+                        });
                             }
                             
                             // 如果还在处理中，继续轮询
@@ -718,10 +718,10 @@
                                 // 显示所有日志
                                 if (progressData.logs && progressData.logs.length > 0) {
                                     document.getElementById('logContainer').classList.add('show');
-                                }
-                                
-                                // 显示结果
-                                document.getElementById('resultContainer').classList.add('show');
+                    }
+                    
+                    // 显示结果
+                    document.getElementById('resultContainer').classList.add('show');
                             } else if (progressData.status === 'error') {
                                 throw new Error(progressData.error || '处理失败');
                             }
