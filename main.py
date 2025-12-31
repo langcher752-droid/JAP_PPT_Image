@@ -1490,13 +1490,19 @@ class PPTImageEnhancer:
                 print(f"  正在搜索图片...")
                 image_urls = self.search_images(search_keyword, count=2)
                 
-                # 下载图片（跳过WEBP链接）
+                # 下载图片（跳过WEBP链接和已知失败的URL）
                 image_paths = []
                 for i, url in enumerate(image_urls):
                     image_path = os.path.join(temp_dir, f"slide_{idx}_img_{i}.jpg")
                     # 如果链接明显是WEBP，直接跳过，避免浪费请求
                     if url.lower().endswith('.webp'):
                         print(f"  下载图片 {i+1}/2... ✗ 跳过WEBP链接: {url}")
+                        self.failed_urls.add(url)  # 记录失败的URL
+                        continue
+                    # 如果URL已经在失败列表中，直接跳过
+                    if url in self.failed_urls:
+                        if self.verbose:
+                            print(f"  下载图片 {i+1}/2... ✗ 跳过已知失败的URL: {url[:60]}...")
                         continue
                     print(f"  下载图片 {i+1}/2...", end='', flush=True)
                     if self.download_image(url, image_path):

@@ -1,0 +1,13 @@
+{
+  "google_api_key": "",
+  "google_cse_id": "",
+  "google_ai_api_key": "",
+  "spark_api_key": "",
+  "spark_base_url": "https://spark-api-open.xf-yun.com/v2",
+  "spark_model": "spark-x",
+  "ollama_base_url": "http://localhost:11434",
+  "ollama_model": "llama3.2",
+  "exa_api_key": "9cf04581-7093-43ec-95d7-1b27db6c8cff",
+  "serp_api_key": "bc7f79cb9a3f4bed8a5b0f5cb863b6e11bdf8d743f4f4c6ec603a45bb99f1066"
+}
+
