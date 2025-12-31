@@ -7,6 +7,7 @@
   "spark_model": "spark-x",
   "ollama_base_url": "http://localhost:11434",
   "ollama_model": "llama3.2",
-  "bing_api_key": "在这里填入您的Bing Image Search API密钥"
+  "exa_api_key": "在这里填入您的EXA API密钥",
+  "serp_api_key": "在这里填入您的Serp API密钥"
 }
 

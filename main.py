@@ -4,11 +4,11 @@
 """
 
 import os
-import requests
-from pptx import Presentation
-from pptx.util import Inches, Pt
-from pptx.enum.text import PP_ALIGN
-from pptx.dml.color import RGBColor
+import requests  # pyright: ignore[reportMissingModuleSource]
+from pptx import Presentation  # pyright: ignore[reportMissingImports]
+from pptx.util import Inches, Pt  # pyright: ignore[reportMissingImports]
+from pptx.enum.text import PP_ALIGN  # pyright: ignore[reportMissingImports]
+from pptx.dml.color import RGBColor  # pyright: ignore[reportMissingImports]
 import time
 from urllib.parse import quote, urlencode
 import json
@@ -23,7 +23,7 @@ except ImportError:
 class PPTImageEnhancer:
     def __init__(self, ppt_path, output_path=None, google_api_key=None, google_cse_id=None, 
                  google_ai_api_key=None, spark_api_key=None, spark_base_url=None, spark_model=None,
-                 ollama_base_url=None, ollama_model=None, bing_api_key=None, verbose=True):
+                 ollama_base_url=None, ollama_model=None, exa_api_key=None, serp_api_key=None, verbose=True):
         """
         初始化PPT图片增强器
         
@@ -38,7 +38,8 @@ class PPTImageEnhancer:
             spark_model: Spark AI Model（可选）
             ollama_base_url: Ollama本地模型Base URL（可选，默认http://localhost:11434）
             ollama_model: Ollama模型名称（可选，默认llama3.2）
-            bing_api_key: Bing Image Search API Key（可选）
+            exa_api_key: EXA API Key（可选）
+            serp_api_key: Serp API Key（可选）
             verbose: 是否显示详细日志
         """
         self.ppt_path = ppt_path
@@ -58,17 +59,22 @@ class PPTImageEnhancer:
         self.spark_model = spark_model or "spark-x"
         self.ollama_base_url = ollama_base_url or "http://localhost:11434"
         self.ollama_model = ollama_model or "llama3.2"
-        self.bing_api_key = bing_api_key
+        self.exa_api_key = exa_api_key
+        self.serp_api_key = serp_api_key
         self.verbose = verbose
         self.last_template_id = -1  # 记录上一页使用的模板ID，确保相邻页面不同
+        self.optimized_keywords_cache = {}  # 缓存已优化的关键词，避免重复调用AI
+        self.failed_urls = set()  # 记录失败的URL，避免重复尝试下载
         
         if self.verbose:
             if self.google_api_key and self.google_cse_id:
                 print(f"[INFO] Google Custom Search API已配置")
             else:
                 print(f"[INFO] Google API未配置")
-            if self.bing_api_key:
-                print(f"[INFO] Bing Image Search API已配置")
+            if self.exa_api_key:
+                print(f"[INFO] EXA API已配置")
+            if self.serp_api_key:
+                print(f"[INFO] Serp API已配置")
             if self.google_ai_api_key:
                 print(f"[INFO] Google AI (Gemini) API已配置，将优先用于优化搜索关键词")
             if self.ollama_base_url:
@@ -485,16 +491,23 @@ class PPTImageEnhancer:
         except requests.exceptions.Timeout as e:
             if self.verbose:
                 print(f"    [DEBUG] Ollama优化关键词超时: {str(e)}")
-                print(f"    [DEBUG] 提示: 首次调用可能需要更长时间加载模型，请稍后重试")
+                print(f"    [DEBUG] 提示: 首次调用可能需要更长时间加载模型，跳过Ollama优化")
+            # 超时不抛出异常，只返回None，让程序继续
+            return None
+        except requests.exceptions.ConnectionError as e:
+            if self.verbose:
+                print(f"    [DEBUG] Ollama连接错误: {str(e)}")
+                print(f"    [DEBUG] 提示: Ollama服务可能未运行，跳过Ollama优化")
             return None
         except Exception as e:
             if self.verbose:
                 print(f"    [DEBUG] Ollama优化关键词失败: {str(e)}")
+            # 不抛出异常，只返回None，让程序继续
             return None
     
-    def search_images_bing_api(self, keyword, count=2):
+    def search_images_exa_api(self, keyword, count=2):
         """
-        使用Bing Image Search API搜索图片
+        使用EXA API搜索图片
         
         Args:
             keyword: 搜索关键词
@@ -503,56 +516,156 @@ class PPTImageEnhancer:
         Returns:
             图片URL列表
         """
-        if not self.bing_api_key:
+        if not self.exa_api_key:
             return []
         
         image_urls = []
         try:
             if self.verbose:
-                print(f"    [DEBUG] 使用Bing Image Search API搜索: {keyword}")
+                print(f"    [DEBUG] 使用EXA API搜索: {keyword}")
             
-            # Bing Image Search API v7
-            url = "https://api.bing.microsoft.com/v7.0/images/search"
+            # EXA API - 使用search端点
+            url = "https://api.exa.ai/search"
             headers = {
-                'Ocp-Apim-Subscription-Key': self.bing_api_key
+                'x-api-key': self.exa_api_key,
+                'Content-Type': 'application/json'
             }
-            params = {
-                'q': keyword,
-                'count': min(count, 35),  # Bing API最多返回35个结果
-                'imageType': 'Photo',
-                'size': 'Large',
-                'aspect': 'All',
-                'color': 'ColorOnly',
-                'freshness': 'Month',
-                'safeSearch': 'Strict'
+            payload = {
+                'query': keyword,
+                'type': 'neural',
+                'category': 'images',
+                'num_results': min(count * 2, 10),  # 获取更多结果以便过滤
+                'use_autoprompt': False,
+                'contents': {'text': True, 'images': True}
             }
             
-            response = requests.get(url, headers=headers, params=params, timeout=15)
+            response = requests.post(url, headers=headers, json=payload, timeout=15)
             
             if self.verbose:
-                print(f"    [DEBUG] Bing API响应状态: {response.status_code}")
+                print(f"    [DEBUG] EXA API响应状态: {response.status_code}")
             
             if response.status_code == 200:
                 data = response.json()
-                if 'value' in data:
-                    for item in data['value'][:count]:
-                        img_url = item.get('contentUrl', '')
-                        if img_url:
+                if 'results' in data:
+                    for item in data['results']:
+                        if len(image_urls) >= count:
+                            break
+                        # EXA可能返回多种格式，尝试提取图片URL
+                        img_url = item.get('url', '') or item.get('image_url', '') or item.get('image', '')
+                        if img_url and not img_url.lower().endswith('.webp') and '.webp' not in img_url.lower():
                             image_urls.append(img_url)
                             if self.verbose:
                                 print(f"    [DEBUG] 找到图片: {img_url[:60]}...")
                 else:
                     if self.verbose:
-                        print(f"    [DEBUG] Bing API未返回结果")
+                        print(f"    [DEBUG] EXA API未返回结果")
             else:
                 if self.verbose:
-                    print(f"    [DEBUG] Bing API错误: {response.status_code} - {response.text[:100]}")
+                    print(f"    [DEBUG] EXA API错误: {response.status_code} - {response.text[:100]}")
                     
         except Exception as e:
             if self.verbose:
-                print(f"    [DEBUG] Bing API异常: {str(e)}")
+                print(f"    [DEBUG] EXA API异常: {str(e)}")
         
         return image_urls
+    
+    def search_images_serp_api(self, keyword, count=2):
+        """
+        使用Serp API搜索Google图片
+        
+        Args:
+            keyword: 搜索关键词
+            count: 需要的图片数量
+            
+        Returns:
+            图片URL列表
+        """
+        if not self.serp_api_key:
+            return []
+        
+        image_urls = []
+        try:
+            if self.verbose:
+                print(f"    [DEBUG] 使用Serp API搜索: {keyword}")
+            
+            # Serp API for Google Images
+            url = "https://serpapi.com/search"
+            params = {
+                'api_key': self.serp_api_key,
+                'engine': 'google_images',
+                'q': keyword,
+                'num': min(count, 20),  # Serp API限制
+                'safe': 'active',
+                'ijn': 0  # 第一页
+            }
+            
+            response = requests.get(url, params=params, timeout=15)
+            
+            if self.verbose:
+                print(f"    [DEBUG] Serp API响应状态: {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                if 'images_results' in data:
+                    for item in data['images_results'][:count]:
+                        img_url = item.get('original', '') or item.get('link', '')
+                        if img_url and not img_url.lower().endswith('.webp') and '.webp' not in img_url.lower():
+                            image_urls.append(img_url)
+                            if self.verbose:
+                                print(f"    [DEBUG] 找到图片: {img_url[:60]}...")
+                else:
+                    if self.verbose:
+                        print(f"    [DEBUG] Serp API未返回结果")
+            else:
+                if self.verbose:
+                    print(f"    [DEBUG] Serp API错误: {response.status_code} - {response.text[:100]}")
+                    
+        except Exception as e:
+            if self.verbose:
+                print(f"    [DEBUG] Serp API异常: {str(e)}")
+        
+        return image_urls
+    
+    def optimize_search_keyword_cached(self, keyword):
+        """
+        优化搜索关键词（带缓存，避免重复调用AI）
+        
+        Args:
+            keyword: 原始关键词
+            
+        Returns:
+            优化后的关键词，如果失败则返回None
+        """
+        # 检查缓存
+        if keyword in self.optimized_keywords_cache:
+            if self.verbose:
+                print(f"    [DEBUG] 使用缓存的关键词优化结果: {self.optimized_keywords_cache[keyword]}")
+            return self.optimized_keywords_cache[keyword]
+        
+        # 优先使用Gemini AI优化搜索关键词，失败则尝试Ollama，最后尝试Spark AI
+        optimized_keyword = None
+        if self.google_ai_api_key:
+            optimized_keyword = self.optimize_search_keyword_with_gemini(keyword)
+            if not optimized_keyword and self.ollama_base_url:
+                if self.verbose:
+                    print(f"    [DEBUG] Gemini优化失败，尝试使用Ollama本地模型")
+                optimized_keyword = self.optimize_search_keyword_with_ollama(keyword)
+            if not optimized_keyword and self.spark_api_key:
+                if self.verbose:
+                    print(f"    [DEBUG] Gemini和Ollama优化失败，尝试使用Spark AI")
+                optimized_keyword = self.optimize_search_keyword_with_spark(keyword)
+        elif self.ollama_base_url:
+            optimized_keyword = self.optimize_search_keyword_with_ollama(keyword)
+            if not optimized_keyword and self.spark_api_key:
+                if self.verbose:
+                    print(f"    [DEBUG] Ollama优化失败，尝试使用Spark AI")
+                optimized_keyword = self.optimize_search_keyword_with_spark(keyword)
+        elif self.spark_api_key:
+            optimized_keyword = self.optimize_search_keyword_with_spark(keyword)
+        
+        # 缓存结果（包括None，避免重复尝试）
+        self.optimized_keywords_cache[keyword] = optimized_keyword
+        return optimized_keyword
     
     def search_images(self, keyword, count=2):
         """
@@ -574,26 +687,8 @@ class PPTImageEnhancer:
             if len(parts) > 1:
                 clean_keyword = parts[-1].strip()
         
-        # 优先使用Gemini AI优化搜索关键词，失败则尝试Ollama，最后尝试Spark AI
-        optimized_keyword = None
-        if self.google_ai_api_key:
-            optimized_keyword = self.optimize_search_keyword_with_gemini(clean_keyword)
-            if not optimized_keyword and self.ollama_base_url:
-                if self.verbose:
-                    print(f"    [DEBUG] Gemini优化失败，尝试使用Ollama本地模型")
-                optimized_keyword = self.optimize_search_keyword_with_ollama(clean_keyword)
-            if not optimized_keyword and self.spark_api_key:
-                if self.verbose:
-                    print(f"    [DEBUG] Gemini和Ollama优化失败，尝试使用Spark AI")
-                optimized_keyword = self.optimize_search_keyword_with_spark(clean_keyword)
-        elif self.ollama_base_url:
-            optimized_keyword = self.optimize_search_keyword_with_ollama(clean_keyword)
-            if not optimized_keyword and self.spark_api_key:
-                if self.verbose:
-                    print(f"    [DEBUG] Ollama优化失败，尝试使用Spark AI")
-                optimized_keyword = self.optimize_search_keyword_with_spark(clean_keyword)
-        elif self.spark_api_key:
-            optimized_keyword = self.optimize_search_keyword_with_spark(clean_keyword)
+        # 使用缓存的优化方法
+        optimized_keyword = self.optimize_search_keyword_cached(clean_keyword)
         
         # 生成搜索关键词变体
         search_keywords = []
@@ -614,33 +709,52 @@ class PPTImageEnhancer:
         # 方案1: 尝试使用Google Custom Search API
         if self.google_api_key and self.google_cse_id:
             for search_term in search_keywords:
-                image_urls = self.search_images_google_api(search_term, count)
+                google_urls = self.search_images_google_api(search_term, count)
+                # 过滤掉已知失败的URL
+                google_urls = [url for url in google_urls if url not in self.failed_urls]
+                image_urls.extend(google_urls)
                 if len(image_urls) >= count:
                     break
         
-        # 方案2: 如果Google API结果不足，尝试使用Bing Image Search API
-        if len(image_urls) < count and self.bing_api_key:
+        # 方案2: 如果Google API结果不足，尝试使用Serp API
+        if len(image_urls) < count and self.serp_api_key:
             if self.verbose:
-                print(f"    [DEBUG] Google API结果不足({len(image_urls)}/{count})，尝试使用Bing API")
+                print(f"    [DEBUG] Google API结果不足({len(image_urls)}/{count})，尝试使用Serp API")
             for search_term in search_keywords:
-                bing_urls = self.search_images_bing_api(search_term, count - len(image_urls))
-                image_urls.extend(bing_urls)
+                serp_urls = self.search_images_serp_api(search_term, count - len(image_urls))
+                # 过滤掉已知失败的URL
+                serp_urls = [url for url in serp_urls if url not in self.failed_urls]
+                image_urls.extend(serp_urls)
                 if len(image_urls) >= count:
                     break
         
-        # 方案3: 如果API结果不足，尝试爬取Google图片搜索结果
+        # 方案3: 如果结果不足，尝试使用EXA API
+        if len(image_urls) < count and self.exa_api_key:
+            if self.verbose:
+                print(f"    [DEBUG] API结果不足({len(image_urls)}/{count})，尝试使用EXA API")
+            for search_term in search_keywords:
+                exa_urls = self.search_images_exa_api(search_term, count - len(image_urls))
+                # 过滤掉已知失败的URL
+                exa_urls = [url for url in exa_urls if url not in self.failed_urls]
+                image_urls.extend(exa_urls)
+                if len(image_urls) >= count:
+                    break
+        
+        # 方案4: 如果API结果不足，尝试爬取Google图片搜索结果
         if len(image_urls) < count:
             if self.verbose:
                 print(f"    [DEBUG] API结果不足({len(image_urls)}/{count})，尝试爬取Google搜索结果")
             for search_term in search_keywords:
                 scraped_urls = self.search_images_google_scrape(search_term, count - len(image_urls))
+                # 过滤掉已知失败的URL
+                scraped_urls = [url for url in scraped_urls if url not in self.failed_urls]
                 image_urls.extend(scraped_urls)
                 if len(image_urls) >= count:
                     break
         
         # 不再使用随机Picsum图片，只使用实际搜索结果
         if self.verbose:
-            print(f"    [DEBUG] 总共找到 {len(image_urls)} 张图片（不使用随机备用图）")
+            print(f"    [DEBUG] 总共找到 {len(image_urls)} 张图片（已过滤 {len(self.failed_urls)} 个已知失败的URL）")
         
         return image_urls[:count]
     
@@ -698,6 +812,7 @@ class PPTImageEnhancer:
                     if 'image/webp' in content_type:
                         if self.verbose:
                             print(f"    [DEBUG] 检测到WEBP格式(Content-Type)，已跳过该图片: {url}")
+                        self.failed_urls.add(url)  # 记录失败的URL
                         return False
                     
                     # 检查是否是有效的图片
@@ -713,6 +828,7 @@ class PPTImageEnhancer:
                         if content_str.startswith('<!doctype') or content_str.startswith('<html') or '<html' in content_str[:100]:
                             if self.verbose:
                                 print(f"    [DEBUG] ✗ 下载的内容是HTML页面而不是图片，已跳过: {url}")
+                            self.failed_urls.add(url)  # 记录失败的URL
                             return False
                         
                         # 检查是否是图片格式
@@ -732,6 +848,7 @@ class PPTImageEnhancer:
                             # 明确识别为WEBP，直接跳过，不保存到本地
                             if self.verbose:
                                 print(f"    [DEBUG] 检测到WEBP图片(内容特征)，已跳过该图片: {url}")
+                            self.failed_urls.add(url)  # 记录失败的URL
                             return False
                         
                         if self.verbose:
@@ -747,23 +864,28 @@ class PPTImageEnhancer:
                         else:
                             if self.verbose:
                                 print(f"    [DEBUG] ✗ 内容不是有效的图片格式（不是JPEG/PNG/GIF）")
+                            self.failed_urls.add(url)  # 记录失败的URL
                     else:
                         if self.verbose:
                             print(f"    [DEBUG] ✗ 内容太小 ({content_size} bytes < 1KB)")
+                        self.failed_urls.add(url)  # 记录失败的URL
                 else:
                     if self.verbose:
                         print(f"    [DEBUG] ✗ HTTP错误: {response.status_code}")
+                    self.failed_urls.add(url)  # 记录失败的URL
                 
             except requests.exceptions.Timeout as e:
                 if self.verbose:
                     print(f"    [DEBUG] 超时异常: {str(e)}")
                     print(f"    [DEBUG] 立即放弃该图片URL，不再重试: {url}")
+                self.failed_urls.add(url)  # 记录失败的URL
                 # 直接放弃该URL，由上层逻辑尝试其他图片或重新搜索
                 break
             except requests.exceptions.ConnectionError as e:
                 if self.verbose:
                     print(f"    [DEBUG] 连接异常: {type(e).__name__}: {str(e)[:100]}")
                     print(f"    [DEBUG] 立即放弃该图片URL，不再重试: {url}")
+                self.failed_urls.add(url)  # 记录失败的URL
                 # 直接放弃该URL，由上层逻辑尝试其他图片或重新搜索
                 break
             except Exception as e:
@@ -778,9 +900,11 @@ class PPTImageEnhancer:
                 else:
                     if self.verbose:
                         print(f"    [DEBUG] ✗ 下载失败（异常，已重试{retry_count}次）")
+                    self.failed_urls.add(url)  # 记录失败的URL
         
         if self.verbose:
             print(f"    [DEBUG] ✗ 所有重试均失败")
+        self.failed_urls.add(url)  # 记录失败的URL
         return False
     
     def extract_text_from_slide(self, slide):
@@ -1369,12 +1493,12 @@ class PPTImageEnhancer:
                 # 下载图片（跳过WEBP链接）
                 image_paths = []
                 for i, url in enumerate(image_urls):
-                image_path = os.path.join(temp_dir, f"slide_{idx}_img_{i}.jpg")
-                # 如果链接明显是WEBP，直接跳过，避免浪费请求
-                if url.lower().endswith('.webp'):
-                    print(f"  下载图片 {i+1}/2... ✗ 跳过WEBP链接: {url}")
-                    continue
-                print(f"  下载图片 {i+1}/2...", end='', flush=True)
+                    image_path = os.path.join(temp_dir, f"slide_{idx}_img_{i}.jpg")
+                    # 如果链接明显是WEBP，直接跳过，避免浪费请求
+                    if url.lower().endswith('.webp'):
+                        print(f"  下载图片 {i+1}/2... ✗ 跳过WEBP链接: {url}")
+                        continue
+                    print(f"  下载图片 {i+1}/2...", end='', flush=True)
                     if self.download_image(url, image_path):
                         image_paths.append(image_path)
                         print(f" ✓ 成功")
@@ -1386,81 +1510,69 @@ class PPTImageEnhancer:
                 retry_count = 0
                 
                 while len(image_paths) < 2 and retry_count < max_retries:
-                if retry_count == 0 and not image_paths:
-                    print(f"  ✗ 本轮图片下载失败，尝试使用首行文本重新搜索...")
-                elif len(image_paths) < 2:
-                    print(f"  ✗ 图片数量不足({len(image_paths)}/2)，继续搜索...")
-                
-                # 使用第一行文本作为更精简的关键词，或者用Spark AI优化关键词
-                retry_keyword = texts[0] if texts else search_keyword
-                
-                # 如果配置了AI，尝试用AI优化关键词（优先Gemini，失败用Ollama，最后用Spark）
-                # 只在第一次重试时尝试AI优化，避免API配额问题导致超时
-                # 如果API都失败（429或500），跳过AI优化，直接使用原始关键词
-                if (self.google_ai_api_key or self.ollama_base_url or self.spark_api_key) and retry_count == 1:
-                    if self.verbose:
-                        print(f"    [DEBUG] 使用AI优化关键词（第{retry_count+1}次重试）")
-                    optimized = None
-                    if self.google_ai_api_key:
-                        optimized = self.optimize_search_keyword_with_gemini(retry_keyword)
-                        if not optimized and self.ollama_base_url:
-                            if self.verbose:
-                                print(f"    [DEBUG] Gemini优化失败，尝试Ollama本地模型")
-                            optimized = self.optimize_search_keyword_with_ollama(retry_keyword)
-                        if not optimized and self.spark_api_key:
-                            if self.verbose:
-                                print(f"    [DEBUG] Gemini和Ollama优化失败，尝试Spark AI")
-                            optimized = self.optimize_search_keyword_with_spark(retry_keyword)
-                    elif self.ollama_base_url:
-                        optimized = self.optimize_search_keyword_with_ollama(retry_keyword)
-                        if not optimized and self.spark_api_key:
-                            if self.verbose:
-                                print(f"    [DEBUG] Ollama优化失败，尝试Spark AI")
-                            optimized = self.optimize_search_keyword_with_spark(retry_keyword)
-                    elif self.spark_api_key:
-                        optimized = self.optimize_search_keyword_with_spark(retry_keyword)
+                    if retry_count == 0 and not image_paths:
+                        print(f"  ✗ 本轮图片下载失败，尝试使用首行文本重新搜索...")
+                    elif len(image_paths) < 2:
+                        print(f"  ✗ 图片数量不足({len(image_paths)}/2)，继续搜索...")
                     
-                    if optimized:
-                        retry_keyword = optimized
+                    # 使用第一行文本作为更精简的关键词，或者用AI优化关键词
+                    retry_keyword = texts[0] if texts else search_keyword
+                
+                    # 如果配置了AI，尝试用AI优化关键词（使用缓存，避免重复调用）
+                    # 只在第一次重试时尝试AI优化，避免API配额问题导致超时
+                    if (self.google_ai_api_key or self.ollama_base_url or self.spark_api_key) and retry_count == 1:
                         if self.verbose:
-                            print(f"    [DEBUG] AI优化后的关键词: {optimized}")
-                
-                # 重新搜索（search_images内部仍然优先用Google API和Google爬虫）
-                retry_urls = self.search_images(retry_keyword, count=2)
-                
-                # 再尝试下载
-                for i, url in enumerate(retry_urls):
-                    if len(image_paths) >= 2:
-                        break
-                    image_path = os.path.join(temp_dir, f"slide_{idx}_retry{retry_count}_img_{i}.jpg")
-                    if url.lower().endswith('.webp'):
-                        if self.verbose:
-                            print(f"  重新下载图片 {len(image_paths)+1}/2... ✗ 跳过WEBP链接: {url[:60]}...")
-                        continue
-                    print(f"  重新下载图片 {len(image_paths)+1}/2...", end='', flush=True)
-                    if self.download_image(url, image_path):
-                        image_paths.append(image_path)
-                        print(f" ✓ 成功")
-                    else:
-                        print(f" ✗ 失败")
-                
+                            print(f"    [DEBUG] 使用AI优化关键词（第{retry_count+1}次重试，使用缓存）")
+                        # 使用缓存的优化方法，如果之前已经优化过，会直接返回缓存结果
+                        optimized = self.optimize_search_keyword_cached(retry_keyword)
+                        if optimized:
+                            retry_keyword = optimized
+                            if self.verbose:
+                                print(f"    [DEBUG] AI优化后的关键词: {optimized}")
+                    
+                    # 重新搜索（search_images内部仍然优先用Google API和Google爬虫）
+                    retry_urls = self.search_images(retry_keyword, count=2)
+                    
+                    # 再尝试下载（跳过已知失败的URL）
+                    for i, url in enumerate(retry_urls):
+                        if len(image_paths) >= 2:
+                            break
+                        image_path = os.path.join(temp_dir, f"slide_{idx}_retry{retry_count}_img_{i}.jpg")
+                        # 如果链接明显是WEBP，直接跳过
+                        if url.lower().endswith('.webp'):
+                            if self.verbose:
+                                print(f"  重新下载图片 {len(image_paths)+1}/2... ✗ 跳过WEBP链接: {url[:60]}...")
+                            self.failed_urls.add(url)  # 记录失败的URL
+                            continue
+                        # 如果URL已经在失败列表中，直接跳过
+                        if url in self.failed_urls:
+                            if self.verbose:
+                                print(f"  重新下载图片 {len(image_paths)+1}/2... ✗ 跳过已知失败的URL: {url[:60]}...")
+                            continue
+                        print(f"  重新下载图片 {len(image_paths)+1}/2...", end='', flush=True)
+                        if self.download_image(url, image_path):
+                            image_paths.append(image_path)
+                            print(f" ✓ 成功")
+                        else:
+                            print(f" ✗ 失败")
+                    
                     retry_count += 1
                 
                 # 如果图片下载成功，添加到幻灯片（必须使用2张，如果只有1张则重复使用）
                 if image_paths:
-                # 确保有2张图片（如果只有1张，复制一份）
-                while len(image_paths) < 2:
-                    import shutil
-                    single_img = image_paths[0]
-                    dup_path = single_img.replace('.jpg', '_dup.jpg')
-                    shutil.copy2(single_img, dup_path)
-                    image_paths.append(dup_path)
-                    if self.verbose:
-                        print(f"    [DEBUG] 图片不足2张，复制图片以补足: {dup_path}")
-                
-                image_paths = image_paths[:2]
-                print(f"  正在添加图片到幻灯片...")
-                self.add_creative_layout(slide, image_paths, texts)
+                    # 确保有2张图片（如果只有1张，复制一份）
+                    while len(image_paths) < 2:
+                        import shutil
+                        single_img = image_paths[0]
+                        dup_path = single_img.replace('.jpg', '_dup.jpg')
+                        shutil.copy2(single_img, dup_path)
+                        image_paths.append(dup_path)
+                        if self.verbose:
+                            print(f"    [DEBUG] 图片不足2张，复制图片以补足: {dup_path}")
+                    
+                    image_paths = image_paths[:2]
+                    print(f"  正在添加图片到幻灯片...")
+                    self.add_creative_layout(slide, image_paths, texts)
                     print(f"  ✓ 第 {idx + 1} 页处理完成（模板ID: {self.last_template_id}，图片数: {len(image_paths)})")
                 else:
                     print(f"  ✗ 第 {idx + 1} 页经过{max_retries}次搜索仍无法获得图片")
@@ -1506,7 +1618,7 @@ def load_config():
     
     Returns:
         (google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model, 
-         ollama_base_url, ollama_model, bing_api_key) 元组
+         ollama_base_url, ollama_model, exa_api_key, serp_api_key) 元组
     """
     config_file = "config.json"
     google_api_key = None
@@ -1517,7 +1629,8 @@ def load_config():
     spark_model = None
     ollama_base_url = None
     ollama_model = None
-    bing_api_key = None
+    exa_api_key = None
+    serp_api_key = None
     
     if os.path.exists(config_file):
         try:
@@ -1531,7 +1644,8 @@ def load_config():
                 spark_model = config.get('spark_model', 'spark-x')
                 ollama_base_url = config.get('ollama_base_url', 'http://localhost:11434')
                 ollama_model = config.get('ollama_model', 'llama3.2')
-                bing_api_key = config.get('bing_api_key')
+                exa_api_key = config.get('exa_api_key')
+                serp_api_key = config.get('serp_api_key')
                 
                 if google_api_key and google_cse_id:
                     print(f"[INFO] 已从配置文件加载Google Custom Search API设置")
@@ -1541,12 +1655,14 @@ def load_config():
                     print(f"[INFO] 已从配置文件加载Ollama本地模型设置: {ollama_base_url} (模型: {ollama_model})")
                 if spark_api_key:
                     print(f"[INFO] 已从配置文件加载Spark AI API设置")
-                if bing_api_key:
-                    print(f"[INFO] 已从配置文件加载Bing Image Search API设置")
+                if exa_api_key:
+                    print(f"[INFO] 已从配置文件加载EXA API设置")
+                if serp_api_key:
+                    print(f"[INFO] 已从配置文件加载Serp API设置")
         except Exception as e:
             print(f"[WARN] 读取配置文件失败: {e}")
     
-    return google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model, ollama_base_url, ollama_model, bing_api_key
+    return google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model, ollama_base_url, ollama_model, exa_api_key, serp_api_key
 
 def main():
     """
@@ -1557,18 +1673,20 @@ def main():
     print("=" * 50)
     
     # 加载API配置
-    google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model, ollama_base_url, ollama_model, bing_api_key = load_config()
+    google_api_key, google_cse_id, google_ai_api_key, spark_api_key, spark_base_url, spark_model, ollama_base_url, ollama_model, exa_api_key, serp_api_key = load_config()
     
     if not google_api_key or not google_cse_id:
-        if not bing_api_key:
-            print("\n[提示] Google图片搜索API和Bing API均未配置")
+        if not serp_api_key and not exa_api_key:
+            print("\n[提示] Google图片搜索API、Serp API和EXA API均未配置")
             print("将尝试使用Google爬虫搜索图片（可能效果不佳）")
-            print("建议配置Bing Image Search API或Google Custom Search API")
-        else:
-            print("\n[提示] Google图片搜索API未配置，将使用Bing API")
+            print("建议配置Serp API、EXA API或Google Custom Search API")
+        elif serp_api_key:
+            print("\n[提示] Google图片搜索API未配置，将使用Serp API")
+        elif exa_api_key:
+            print("\n[提示] Google图片搜索API未配置，将使用EXA API")
     else:
-        if bing_api_key:
-            print("\n[提示] Google和Bing图片搜索API均已配置")
+        if serp_api_key or exa_api_key:
+            print("\n[提示] 多个图片搜索API已配置")
         else:
             print("\n[提示] Google图片搜索API已配置")
     
@@ -1613,7 +1731,8 @@ def main():
         spark_model=spark_model,
         ollama_base_url=ollama_base_url,
         ollama_model=ollama_model,
-        bing_api_key=bing_api_key,
+        exa_api_key=exa_api_key,
+        serp_api_key=serp_api_key,
         verbose=verbose
     )
     enhancer.process_slides()
