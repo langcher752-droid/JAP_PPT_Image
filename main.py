@@ -958,7 +958,7 @@ class PPTImageEnhancer:
             # 转换失败，返回原路径（可能会失败，但至少尝试一下）
             # 但如果原路径也不是字符串，返回None让上层处理
             if isinstance(image_path, str):
-            return image_path
+                return image_path
             else:
                 if self.verbose:
                     print(f"    [DEBUG] 图片路径不是字符串，无法返回: {type(image_path)}")
