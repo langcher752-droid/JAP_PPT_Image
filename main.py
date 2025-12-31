@@ -104,7 +104,7 @@ class PPTImageEnhancer:
                 'cx': self.google_cse_id,
                 'q': keyword,
                 'searchType': 'image',
-                'num': min(count, 10),  # Google API最多返回10个结果
+                'num': min(count * 3, 10),  # 获取更多结果以便过滤WEBP
                 'safe': 'active',
                 'imgSize': 'xlarge',  # 使用xlarge获取更高分辨率图片
                 'imgType': 'photo',
@@ -119,9 +119,12 @@ class PPTImageEnhancer:
             if response.status_code == 200:
                 data = response.json()
                 if 'items' in data:
-                    for item in data['items'][:count]:
+                    for item in data['items']:
+                        if len(image_urls) >= count:
+                            break
                         img_url = item.get('link', '')
-                        if img_url:
+                        # 过滤WEBP格式（即使API设置了fileType，仍可能返回WEBP）
+                        if img_url and not img_url.lower().endswith('.webp') and '.webp' not in img_url.lower():
                             image_urls.append(img_url)
                             if self.verbose:
                                 print(f"    [DEBUG] 找到图片: {img_url[:60]}...")
@@ -429,19 +432,10 @@ class PPTImageEnhancer:
             return None
         
         try:
+            # 使用更简洁的prompt，减少处理时间
             prompt = (
-                "You are helping to search images on Google Images.\n"
-                "Given the following Japanese word or short phrase:\n"
-                f"{japanese_text}\n\n"
-                "Task:\n"
-                "1. Generate ONE short English search query that will find images closely related\n"
-                "   to the meaning of this Japanese word.\n"
-                "2. The query should be at most 4–5 English words (very short).\n"
-                "3. Output ONLY the English query text, without any explanation, quotes or extra words.\n"
-                "4. If the Japanese word is a concrete thing (object, animal, food, place, action),\n"
-                "   translate or describe it directly. If it is abstract, choose a concrete visual\n"
-                "   concept that represents it (for example, a scene or object people can see).\n\n"
-                "English search query:"
+                f"Translate this Japanese word to a short English image search query (2-4 words only): {japanese_text}\n"
+                "Output only the English words, nothing else:"
             )
             
             base_url = self.ollama_base_url.rstrip("/")
@@ -1353,43 +1347,45 @@ class PPTImageEnhancer:
         os.makedirs(temp_dir, exist_ok=True)
         
         for idx, slide in enumerate(self.prs.slides):
-            print(f"\n处理第 {idx + 1} 页...")
-            
-            # 提取文本
-            texts = self.extract_text_from_slide(slide)
-            if not texts:
-                print(f"  第 {idx + 1} 页没有找到文本，跳过")
-                continue
-            
-            print(f"  提取的文本: {', '.join(texts)}")
-            
-            # 合并所有文本作为搜索关键词
-            search_keyword = " ".join(texts)
-            
-            # 搜索图片
-            print(f"  正在搜索图片...")
-            image_urls = self.search_images(search_keyword, count=2)
-            
-            # 下载图片（跳过WEBP链接）
-            image_paths = []
-            for i, url in enumerate(image_urls):
+            try:
+                print(f"\n处理第 {idx + 1} 页...")
+                
+                # 提取文本
+                texts = self.extract_text_from_slide(slide)
+                if not texts:
+                    print(f"  第 {idx + 1} 页没有找到文本，跳过")
+                    self.print_progress(idx + 1, total_slides)
+                    continue
+                
+                print(f"  提取的文本: {', '.join(texts)}")
+                
+                # 合并所有文本作为搜索关键词
+                search_keyword = " ".join(texts)
+                
+                # 搜索图片
+                print(f"  正在搜索图片...")
+                image_urls = self.search_images(search_keyword, count=2)
+                
+                # 下载图片（跳过WEBP链接）
+                image_paths = []
+                for i, url in enumerate(image_urls):
                 image_path = os.path.join(temp_dir, f"slide_{idx}_img_{i}.jpg")
                 # 如果链接明显是WEBP，直接跳过，避免浪费请求
                 if url.lower().endswith('.webp'):
                     print(f"  下载图片 {i+1}/2... ✗ 跳过WEBP链接: {url}")
                     continue
                 print(f"  下载图片 {i+1}/2...", end='', flush=True)
-                if self.download_image(url, image_path):
-                    image_paths.append(image_path)
-                    print(f" ✓ 成功")
-                else:
-                    print(f" ✗ 失败")
-            
-            # 强制要求必须有2张图片，如果不够则反复搜索直到找到2张
-            max_retries = 3  # 最多重试3次（减少重试次数，避免超时）
-            retry_count = 0
-            
-            while len(image_paths) < 2 and retry_count < max_retries:
+                    if self.download_image(url, image_path):
+                        image_paths.append(image_path)
+                        print(f" ✓ 成功")
+                    else:
+                        print(f" ✗ 失败")
+                
+                # 强制要求必须有2张图片，如果不够则反复搜索直到找到2张
+                max_retries = 3  # 最多重试3次（减少重试次数，避免超时）
+                retry_count = 0
+                
+                while len(image_paths) < 2 and retry_count < max_retries:
                 if retry_count == 0 and not image_paths:
                     print(f"  ✗ 本轮图片下载失败，尝试使用首行文本重新搜索...")
                 elif len(image_paths) < 2:
@@ -1448,10 +1444,10 @@ class PPTImageEnhancer:
                     else:
                         print(f" ✗ 失败")
                 
-                retry_count += 1
-            
-            # 如果图片下载成功，添加到幻灯片（必须使用2张，如果只有1张则重复使用）
-            if image_paths:
+                    retry_count += 1
+                
+                # 如果图片下载成功，添加到幻灯片（必须使用2张，如果只有1张则重复使用）
+                if image_paths:
                 # 确保有2张图片（如果只有1张，复制一份）
                 while len(image_paths) < 2:
                     import shutil
@@ -1465,13 +1461,26 @@ class PPTImageEnhancer:
                 image_paths = image_paths[:2]
                 print(f"  正在添加图片到幻灯片...")
                 self.add_creative_layout(slide, image_paths, texts)
-                print(f"  ✓ 第 {idx + 1} 页处理完成（模板ID: {self.last_template_id}，图片数: {len(image_paths)})")
-            else:
-                print(f"  ✗ 第 {idx + 1} 页经过{max_retries}次搜索仍无法获得图片")
-                print(f"  ✗ 第 {idx + 1} 页所有搜索方案均失败，保留原始文字布局（不使用随机图片）")
-            
-            # 打印整体进度
-            self.print_progress(idx + 1, total_slides)
+                    print(f"  ✓ 第 {idx + 1} 页处理完成（模板ID: {self.last_template_id}，图片数: {len(image_paths)})")
+                else:
+                    print(f"  ✗ 第 {idx + 1} 页经过{max_retries}次搜索仍无法获得图片")
+                    print(f"  ✗ 第 {idx + 1} 页所有搜索方案均失败，保留原始文字布局（不使用随机图片）")
+                
+                # 打印整体进度
+                self.print_progress(idx + 1, total_slides)
+                
+            except Exception as e:
+                # 单个页面处理失败，记录错误但继续处理其他页面
+                error_msg = str(e)
+                if self.verbose:
+                    print(f"  ✗ 第 {idx + 1} 页处理失败: {error_msg}")
+                    import traceback
+                    print(f"  [DEBUG] 错误详情: {traceback.format_exc()}")
+                else:
+                    print(f"  ✗ 第 {idx + 1} 页处理失败，跳过")
+                
+                # 打印整体进度（即使失败也要更新）
+                self.print_progress(idx + 1, total_slides)
         
         # 保存PPT
         print(f"\n保存处理后的PPT到: {self.output_path}")

@@ -103,8 +103,16 @@ class ProgressLogger:
                         'progress': self.progress_percent,
                         'current_page': self.current_page,
                         'total_pages': self.total_pages,
-                        'logs': self.logs[-50:]  # 只保留最后50条日志
+                        'logs': self.logs[-100:]  # 保留最后100条日志
                     }
+            
+            # 检测错误信息
+            if '✗' in message or '失败' in message or 'ERROR' in message.upper() or 'Exception' in message:
+                if self.task_id and self.task_id in task_status:
+                    # 不改变状态为error，但记录错误日志
+                    current_status = task_status[self.task_id].copy()
+                    current_status['logs'] = self.logs[-100:]
+                    task_status[self.task_id] = current_status
         
         # 同时转发到原stdout，这样 journalctl 里也能看到完整日志
         if self.original_stdout is not None:
@@ -242,7 +250,37 @@ def process_ppt():
                 verbose=True
             )
             
-            enhancer.process_slides()
+            try:
+                enhancer.process_slides()
+            except Exception as process_error:
+                # 处理过程中的错误，更新状态但继续
+                error_msg = str(process_error)
+                if self.verbose:
+                    import traceback
+                    print(f"[ERROR] 处理过程中发生错误: {error_msg}")
+                    print(f"[ERROR] {traceback.format_exc()}")
+                
+                # 更新任务状态为错误
+                task_status[task_id] = {
+                    'status': 'error',
+                    'progress': progress_logger.progress_percent,
+                    'current_page': progress_logger.current_page,
+                    'total_pages': progress_logger.total_pages,
+                    'error': error_msg,
+                    'logs': progress_logger.get_logs()
+                }
+                
+                # 如果输出文件存在，仍然返回成功（部分完成）
+                if os.path.exists(output_path):
+                    return jsonify({
+                        'status': 'partial_success',
+                        'task_id': task_id,
+                        'message': f'处理完成但有错误: {error_msg}',
+                        'output_filename': output_filename,
+                        'logs': progress_logger.get_logs()
+                    })
+                else:
+                    raise process_error
             
             # 检查输出文件是否存在
             if not os.path.exists(output_path):
