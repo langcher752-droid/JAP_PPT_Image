@@ -452,8 +452,10 @@ class PPTImageEnhancer:
                 "prompt": prompt,
                 "stream": False,
                 "options": {
-                    "temperature": 0.7,
-                    "num_predict": 50
+                    "temperature": 0.3,  # 降低temperature，更确定性，更快
+                    "num_predict": 20,   # 减少最大输出长度，只需要2-4个单词
+                    "top_p": 0.9,        # 限制采样范围，加快速度
+                    "top_k": 20          # 限制候选词数量
                 }
             }
             
@@ -461,7 +463,8 @@ class PPTImageEnhancer:
                 print(f"    [DEBUG] 调用Ollama本地模型优化关键词: {japanese_text}")
                 print(f"    [DEBUG] Ollama API请求URL: {endpoint}")
             
-            response = requests.post(endpoint, json=payload, timeout=30)
+            # 增加超时时间到120秒，因为首次调用需要加载模型
+            response = requests.post(endpoint, json=payload, timeout=120)
             response.raise_for_status()
             
             result = response.json()
@@ -485,6 +488,11 @@ class PPTImageEnhancer:
                     print(f"    [DEBUG] Ollama返回的关键词格式不正确: {content}")
                 return None
                 
+        except requests.exceptions.Timeout as e:
+            if self.verbose:
+                print(f"    [DEBUG] Ollama优化关键词超时: {str(e)}")
+                print(f"    [DEBUG] 提示: 首次调用可能需要更长时间加载模型，请稍后重试")
+            return None
         except Exception as e:
             if self.verbose:
                 print(f"    [DEBUG] Ollama优化关键词失败: {str(e)}")
